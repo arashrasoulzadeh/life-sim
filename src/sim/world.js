@@ -68,6 +68,7 @@ export function createWorld(seed) {
       bed: [...DEFAULT_OBJECTS.bed],
     },
     conversation: { log: [], bubble: null, lastMorningDay: 0, lastEveningDay: 0 },
+    roomDocs: {}, // worlds/<seed>/<room>.json contents, filled by worldfiles.js
     dialogueRequest: null, // "morning" | "evening" — picked up by main.js
     yesterday: freshTally(0), // last completed day's tally, for the evening/morning chat
     ticks: 0,

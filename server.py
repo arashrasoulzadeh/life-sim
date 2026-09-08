@@ -6,18 +6,24 @@ import datetime
 import http.server
 import json
 import os
+import re
 import sys
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 5173
 ROOT = os.path.dirname(os.path.abspath(__file__))
 LOG = os.path.join(ROOT, "llm.log")
+ROOMS = {"window", "kitchen", "desk", "couch", "bed"}
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def _body(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        return self.rfile.read(n)
+
     def do_POST(self):
-        if self.path.split("?")[0].rstrip("/") == "/_log":
-            n = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(n)
+        path = self.path.split("?")[0].rstrip("/")
+        if path == "/_log":
+            raw = self._body()
             try:
                 entry = json.loads(raw)
             except Exception:
@@ -29,6 +35,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001
                 self.send_error(500, str(e))
                 return
+            self.send_response(204)
+            self.end_headers()
+        elif path == "/_world":
+            try:
+                entry = json.loads(self._body())
+                seed = str(entry.get("seed", ""))
+                room = entry.get("room", "")
+            except Exception:
+                self.send_error(400, "bad json")
+                return
+            if not re.fullmatch(r"\d{1,10}", seed) or room not in ROOMS:
+                self.send_error(400, "bad seed/room")
+                return
+            d = os.path.join(ROOT, "worlds", seed)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, room + ".json"), "w", encoding="utf-8") as fh:
+                json.dump(entry.get("doc", {}), fh, indent=2, ensure_ascii=False)
             self.send_response(204)
             self.end_headers()
         else:

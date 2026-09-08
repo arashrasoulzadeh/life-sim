@@ -29,6 +29,20 @@ The only inputs — it's a life that runs itself:
 - `D` — debug overlay
 - `R` — start a new random life
 
+## Rooms are files
+
+Each life writes `worlds/<seed>/<room>.json` — palette, object list, and a
+rendered HTML fragment. The room you see is that `html` string dropped into the
+`#room-html` layer behind the canvas (the canvas only paints the agent, the
+animated window sky, the memory wall, tints, and UI). When the conversation
+adds or removes an object the file is rewritten; edit a file by hand and the
+running sim picks it up within ~3s (`pollRoom`). Served/written by `server.py`
+(`POST /_world`). `worlds/` is git-ignored.
+
+The top bar shows the seed and token count; **change seed** starts a new life
+at a seed you pick. A default seed can be set in `config.js` (`seed:`) for runs
+with no `?seed=` in the URL.
+
 ## Start / end-of-day conversation
 
 Twice a day (dawn and the evening wind-down) the agent stops to talk. It shares

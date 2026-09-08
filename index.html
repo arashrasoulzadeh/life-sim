@@ -5,34 +5,126 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SimYou</title>
     <style>
+      :root { color-scheme: dark; }
       html, body {
         margin: 0;
-        height: 100%;
+        min-height: 100%;
         background: #0b0d10;
+        color: #c8ccd4;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
-        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        gap: 10px;
+        padding: 16px 0 40px;
+        box-sizing: border-box;
       }
-      #screen {
-        image-rendering: pixelated;
+
+      #topbar {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        width: min(90vmin, 768px);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+      }
+      #topbar b { color: #e6e9f0; letter-spacing: 0.12em; }
+      #topbar .grow { flex: 1; }
+      #tb-seed { color: #8fb8e8; }
+      #tb-tok { color: #e0b45c; }
+      #tb-seedbtn {
+        font: inherit;
+        font-size: 11px;
+        color: #c8ccd4;
+        background: #171b22;
+        border: 1px solid #2b323d;
+        border-radius: 4px;
+        padding: 3px 9px;
+        cursor: pointer;
+      }
+      #tb-seedbtn:hover { background: #1f2530; border-color: #3d4655; }
+
+      #stage {
+        position: relative;
         width: min(90vmin, 768px);
         height: min(90vmin, 768px);
         background: #000;
         box-shadow: 0 0 0 1px #222, 0 24px 80px rgba(0, 0, 0, 0.6);
       }
+
+      /* HTML room layer — fills the playfield (top 448 of 512), sits behind the canvas */
+      #room-html {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 87.5%;
+        overflow: hidden;
+        z-index: 1;
+        pointer-events: none;
+        container-type: size;
+      }
+      #room-html .room { position: absolute; inset: 0; }
+      #room-html .wall { position: absolute; inset: 0 0 40% 0; background: var(--wall); }
+      #room-html .floor {
+        position: absolute;
+        inset: 60% 0 0 0;
+        background: var(--floor);
+        box-shadow: inset 0 3px 0 color-mix(in srgb, var(--accent) 55%, #000);
+      }
+      #room-html .floor::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(rgba(0, 0, 0, 0.05) 0 2px, transparent 2px 10px);
+      }
+      #room-html .furn { position: absolute; border-radius: 2px; }
+      #room-html .obj {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        font-size: 5cqmin;
+        line-height: 1;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.45));
+        transition: opacity 0.25s;
+      }
+
+      #screen {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        image-rendering: pixelated;
+        z-index: 2;
+      }
+
       #hint {
-        position: fixed;
-        bottom: 12px;
         color: #444;
         font-size: 11px;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.06em;
+        text-align: center;
+        max-width: 90vw;
       }
     </style>
   </head>
   <body>
-    <canvas id="screen" width="512" height="512"></canvas>
-    <div id="hint">SIMYOU · [F] fast-forward · [N] next day · [M] memory · [C] conversations · [S] this life · [L] talk on/off · [P] mute · [D] debug · [R] new life</div>
+    <div id="topbar">
+      <b>SIMYOU</b>
+      <span id="tb-seed">seed —</span>
+      <span id="tb-tok">◊ 0</span>
+      <span class="grow"></span>
+      <button id="tb-seedbtn">change seed</button>
+    </div>
+
+    <div id="stage">
+      <div id="room-html"></div>
+      <canvas id="screen" width="512" height="512"></canvas>
+    </div>
+
+    <div id="hint">
+      [F] fast-forward · [N] next day · [M] memory · [C] conversations · [S] this life · [L] talk · [P] mute · [D] debug · [R] new life
+    </div>
+
     <script src="./config.js"></script>
     <script type="module" src="./src/main.js"></script>
   </body>

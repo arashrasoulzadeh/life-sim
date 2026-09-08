@@ -3,7 +3,6 @@ import { NEED_IDS } from "../sim/constants.js";
 import { moodWord, moodPosture } from "../sim/mood.js";
 import { rainIntensity } from "../sim/weather.js";
 import { CORRIDOR_Y } from "../sim/agent.js";
-import { OBJECTS } from "../sim/objects.js";
 
 export const W = 512;
 export const H = 512;
@@ -26,15 +25,17 @@ const TRAIT_COLOR = {
 // clickable hit-box for the mute toggle, in canvas pixels
 export const MUTE_RECT = { x: 488, y: 451, w: 20, h: 18 };
 
+// The room scene (walls, floor, furniture, objects) is an HTML layer behind the
+// canvas — see index.html #room-html and src/sim/worldfiles.js. The canvas only
+// paints what needs per-frame motion: the agent, the animated window sky, the
+// memory wall, tints, the corridor, and all the UI.
 export function render(ctx, w, ui) {
+  ctx.clearRect(0, 0, W, H);
   ctx.imageSmoothingEnabled = false;
   const inHall = w.agent.transit > 0;
   if (inHall) {
     drawCorridor(ctx, w);
   } else {
-    drawRoom(ctx, w);
-    drawFurniture(ctx, w.agent.room);
-    drawObjects(ctx, w.rooms[w.agent.room]);
     if (w.agent.room === "window") drawSky(ctx, w);
     if (w.agent.room === "bed") drawMemoryWall(ctx, w);
   }
@@ -107,14 +108,6 @@ function drawCorridor(ctx, w) {
   ctx.font = "9px ui-monospace, Menlo, monospace";
   ctx.textBaseline = "top";
   ctx.fillText(`— the hallway → ${w.agent.room} —`, 12, PLAYFIELD_H - 22);
-}
-
-function drawObjects(ctx, list) {
-  if (!list) return;
-  for (const id of list) {
-    const o = OBJECTS[id];
-    if (o) o.draw(ctx);
-  }
 }
 
 function drawBubble(ctx, w) {
@@ -200,70 +193,6 @@ function wrapText(s, n) {
   }
   if (line) out.push(line);
   return out;
-}
-
-function drawRoom(ctx, w) {
-  const room = ROOMS[w.agent.room];
-  const light = daylight(w.dayFrac);
-  ctx.fillStyle = shade(room.palette.wall, light);
-  ctx.fillRect(0, 0, W, PLAYFIELD_H);
-  ctx.fillStyle = shade(room.palette.floor, light * 0.9 + 0.1);
-  ctx.fillRect(0, room.floor.y, W, PLAYFIELD_H - room.floor.y);
-  ctx.fillStyle = shade(room.palette.accent, 0.5);
-  ctx.fillRect(0, room.floor.y - 4, W, 4);
-  ctx.fillStyle = "rgba(0,0,0,0.06)";
-  for (let y = room.floor.y + 6; y < PLAYFIELD_H; y += 8) ctx.fillRect(0, y, W, 2);
-}
-
-function drawFurniture(ctx, roomId) {
-  const a = ROOMS[roomId].palette.accent;
-  switch (roomId) {
-    case "desk": {
-      ctx.fillStyle = "#5a4632";
-      ctx.fillRect(196, 250, 200, 16);
-      ctx.fillRect(200, 266, 8, 40);
-      ctx.fillRect(384, 266, 8, 40);
-      ctx.fillStyle = "#111";
-      ctx.fillRect(300, 218, 60, 36);
-      ctx.fillStyle = a;
-      ctx.fillRect(304, 222, 52, 28);
-      ctx.fillStyle = "#2a2a2a";
-      ctx.fillRect(324, 254, 12, 8);
-      break;
-    }
-    case "kitchen": {
-      ctx.fillStyle = "#6b6b73";
-      ctx.fillRect(60, 236, 190, 18);
-      ctx.fillStyle = "#3a3a40";
-      ctx.fillRect(60, 254, 190, 44);
-      ctx.fillStyle = "#cfcfd6";
-      ctx.fillRect(96, 244, 16, 10);
-      break;
-    }
-    case "window": {
-      ctx.fillStyle = "#0c1430";
-      ctx.fillRect(150, 70, 212, 150);
-      break;
-    }
-    case "couch": {
-      ctx.fillStyle = shade(a, 0.7);
-      ctx.fillRect(280, 276, 150, 40);
-      ctx.fillRect(280, 250, 20, 40);
-      ctx.fillRect(410, 250, 20, 40);
-      ctx.fillStyle = shade(a, 0.9);
-      ctx.fillRect(300, 268, 110, 12);
-      break;
-    }
-    case "bed": {
-      ctx.fillStyle = "#4a4038";
-      ctx.fillRect(180, 262, 170, 54);
-      ctx.fillStyle = shade(a, 1.1);
-      ctx.fillRect(180, 262, 170, 20);
-      ctx.fillStyle = "#e8e8ee";
-      ctx.fillRect(186, 250, 42, 22);
-      break;
-    }
-  }
 }
 
 function drawSky(ctx, w) {
