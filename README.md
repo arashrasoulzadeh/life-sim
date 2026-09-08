@@ -18,11 +18,12 @@ That runs `python3 -m http.server 5173`. Open http://localhost:5173
 
 The only inputs — it's a life that runs itself:
 
-- click / `space` — begin (also starts audio)
+- click / `space` — begin
 - `F` — toggle 4× fast-forward
+- `N` — jump to the top of the next in-game day
 - `M` — what this life remembers (memory grid + personality drift)
 - `S` — this-life card (seed, era, character, top memories) — screenshot to share
-- `P` — mute
+- `P` / speaker icon — sound (off by default; procedural, pitched to the seed's key)
 - `D` — debug overlay
 - `R` — start a new random life
 - `?seed=12345` — replay a specific life · `?debug` — start with the overlay on
