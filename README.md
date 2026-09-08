@@ -6,12 +6,15 @@ messages other agents, and sleeps, all driven by its own utility AI. Endless.
 
 ## Run
 
+No dependencies, no build step (the npm registry is unreachable on this
+network, and the sim is small enough not to need one). Just serve the folder:
+
 ```bash
-npm install
 npm run dev
 ```
 
-Open the printed URL.
+That runs `python3 -m http.server 5173`. Open http://localhost:5173
+(add `?debug` for the overlay, `?seed=12345` to replay a life).
 
 - `F` — toggle 4× fast-forward (the only input)
 - `D` — debug overlay (personality vector, current action)
