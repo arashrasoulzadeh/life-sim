@@ -19,7 +19,7 @@ That runs `python3 -m http.server 5173`. Open http://localhost:5173
 The only inputs — it's a life that runs itself:
 
 - click / `space` — begin
-- `F` — toggle 4× fast-forward
+- `F` — fast-forward (3 → 15 in-game minutes per real second)
 - `N` — jump to the top of the next in-game day
 - `M` — what this life remembers (memory grid + personality drift)
 - `S` — this-life card (seed, era, character, top memories) — screenshot to share

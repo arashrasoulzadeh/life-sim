@@ -6,8 +6,8 @@ import { createWorld, tick, drainFx, rainLevel, DAY_LENGTH } from "./sim/world.j
 import { buildPrompt, applyDialogue, stubDialogue } from "./sim/dialogue.js";
 
 // time mapping: how many in-game minutes pass per real second
-const BASE_MIN_PER_SEC = 20; // default clock
-const FF_MIN_PER_SEC = 60; // [F] fast-forward: one in-game hour per second
+const BASE_MIN_PER_SEC = 3; // default clock: 3 in-game minutes per real second
+const FF_MIN_PER_SEC = 15; // [F] fast-forward: 15 in-game minutes per real second
 const MIN_PER_DAY = 24 * 60;
 const rateFor = (minPerSec) => (minPerSec / MIN_PER_DAY) * DAY_LENGTH;
 const BASE_RATE = rateFor(BASE_MIN_PER_SEC);
@@ -71,7 +71,7 @@ async function runDialogue(phase) {
     }
     const entry = { phase, day: w.day, line: result.line, changes: result.changes, source: result.source, at: Date.now() };
     w.conversation.log.push(entry);
-    w.conversation.bubble = { ...entry, ttl: 50 };
+    w.conversation.bubble = { ...entry, ttl: 22 };
     if (result.source === "gapgpt") Audio.blip("memory");
   } catch (err) {
     world.conversation.log.push({
@@ -83,7 +83,7 @@ async function runDialogue(phase) {
       at: Date.now(),
     });
     const fb = stubDialogue(world, phase, world.rng);
-    world.conversation.bubble = { phase, day: world.day, line: fb.line, changes: fb.changes, source: "offline", ttl: 50 };
+    world.conversation.bubble = { phase, day: world.day, line: fb.line, changes: fb.changes, source: "offline", ttl: 22 };
   } finally {
     dialogueBusy = false;
   }

@@ -156,7 +156,7 @@ export function stepAgent(agent, dt, env, rng) {
 
   if (chosen.room !== agent.room) {
     agent.room = chosen.room;
-    agent.transit = rng.range(4, 7);
+    agent.transit = rng.range(2, 3.6);
     agent.transitTotal = agent.transit;
     agent.x = CORRIDOR_X0;
     agent.y = CORRIDOR_Y;
