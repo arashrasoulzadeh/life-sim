@@ -4,7 +4,7 @@
     {
       "name": "simyou-dev",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "5173"],
+      "runtimeArgs": ["server.py", "5173"],
       "port": 5173
     }
   ]

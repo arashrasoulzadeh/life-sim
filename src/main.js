@@ -62,7 +62,7 @@ async function runDialogue(phase) {
     let result;
     if (ui.llm && Gap.hasKey()) {
       const { system, user } = buildPrompt(w, phase);
-      const resp = await Gap.chatJSON(system, user);
+      const resp = await Gap.chatJSON(system, user, { meta: { phase, day: w.day, seed: w.seed } });
       result = applyDialogue(w, resp);
       result.source = "gapgpt";
     } else {

@@ -20,33 +20,59 @@ export function info() {
   return { base: cfg.base, model: cfg.model, hasKey: !!cfg.key };
 }
 
-export async function chatJSON(system, user, { temperature = 0.85, timeoutMs = 15000 } = {}) {
+// best-effort append to llm.log via the dev server's POST /_log sink
+async function logToFile(entry) {
+  try {
+    await fetch("/_log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+      keepalive: true,
+    });
+  } catch {
+    /* not served by server.py, or offline — ignore */
+  }
+}
+
+export async function chatJSON(system, user, { temperature = 0.85, timeoutMs = 15000, meta = {} } = {}) {
   if (!cfg.key) throw new Error("no api key");
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const requestBody = {
+    model: cfg.model,
+    temperature,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+  };
+  const rec = { kind: "gapgpt", meta, request: requestBody };
   try {
     const res = await fetch(`${cfg.base.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${cfg.key}`,
-      },
-      body: JSON.stringify({
-        model: cfg.model,
-        temperature,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.key}` },
+      body: JSON.stringify(requestBody),
       signal: ctrl.signal,
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    rec.status = res.status;
+    if (!res.ok) {
+      rec.error = `HTTP ${res.status}`;
+      rec.body = await res.text().catch(() => "");
+      throw new Error(rec.error);
+    }
     const data = await res.json();
+    rec.response = data;
     let txt = data?.choices?.[0]?.message?.content ?? "";
+    rec.content = txt;
     txt = txt.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-    return JSON.parse(txt);
+    const parsed = JSON.parse(txt);
+    rec.parsed = parsed;
+    return parsed;
+  } catch (e) {
+    if (!rec.error) rec.error = e.message;
+    throw e;
   } finally {
     clearTimeout(timer);
+    logToFile(rec);
   }
 }

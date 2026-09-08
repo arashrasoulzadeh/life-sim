@@ -4,3 +4,6 @@ dist
 
 # local config may hold an API key
 config.js
+
+# runtime LLM call log
+llm.log
