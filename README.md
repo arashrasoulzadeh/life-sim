@@ -16,23 +16,39 @@ npm run dev
 That runs `python3 -m http.server 5173`. Open http://localhost:5173
 (add `?debug` for the overlay, `?seed=12345` to replay a life).
 
-- `F` — toggle 4× fast-forward (the only input)
-- `D` — debug overlay (personality vector, current action)
-- `R` — start a new life with a random seed
+The only inputs — it's a life that runs itself:
+
+- click / `space` — begin (also starts audio)
+- `F` — toggle 4× fast-forward
+- `M` — what this life remembers (memory grid + personality drift)
+- `S` — this-life card (seed, era, character, top memories) — screenshot to share
+- `P` — mute
+- `D` — debug overlay
+- `R` — start a new random life
 - `?seed=12345` — replay a specific life · `?debug` — start with the overlay on
 
-## Status
+## Status — all six milestones done
 
 - [x] **M1** — 512² canvas, 5 rooms with hard cuts, sprite, status strip, day/night light
 - [x] **M2** — needs + pressure curves, utility-AI action scoring, legible thought line
-- [x] **M3 (partial)** — request stream, tokens, reputation feedback loop
-- [ ] **M4** — memory grid + personality drift + forgetting
-- [ ] **M5** — mood-driven animation, window weather + rare events
-- [ ] **M6** — aging / eras, audio, title screen, shareable seed card
+- [x] **M3** — request stream, tokens, reputation feedback loop
+- [x] **M4** — daily reflection → memory grid → permanent personality drift → forgetting
+- [x] **M5** — mood (slow need-average) drives posture / walk speed / thought tone;
+  drifting weather (clear→clouds→rain→storm→gold) seen through the window;
+  rare one-off window events
+- [x] **M6** — aging eras (decay rate, walk speed, colour cast shift over a long life),
+  procedural audio (pad that tracks mood, rain bed, event blips), title screen,
+  shareable seed card card
 
 ## Layout
 
-- `src/sim/` — the simulation: `needs`, `actions`, `rooms`, `agent` (utility AI), `world` (clock + economy + tick)
-- `src/render/draw.ts` — all rendering
-- `src/engine/rng.ts` — seeded Mulberry32; a life is reproducible from its seed
-- `src/main.ts` — fixed-timestep loop (30 Hz) + input
+- `src/sim/` — the simulation:
+  - `needs`, `actions`, `rooms` — data + curves
+  - `agent` — the utility AI (scores every action each decision, moves, thinks)
+  - `memory` — themes, salience, reinforcement, forgetting, drift into personality
+  - `mood`, `weather`, `eras` — the M5/M6 ambient systems
+  - `world` — clock, economy, weather/era wiring, per-day tallies, `tick()`
+- `src/render/draw.js` — all rendering (rooms, agent, overlays, title, card)
+- `src/engine/rng.js` — seeded Mulberry32; a life is reproducible from its seed
+- `src/engine/audio.js` — procedural WebAudio (no asset files)
+- `src/main.js` — fixed-timestep loop (30 Hz), title gate, input, fx→audio

@@ -55,6 +55,15 @@ export const ACTIONS = [
     weight: 0.7,
   },
   {
+    id: "reflect",
+    label: "write down what today was",
+    gerund: "writing a memory",
+    room: "bed",
+    effect: { focus: 1.0, curiosity: 0.6, social: -0.2, energy: -0.3 },
+    duration: [5, 9],
+    weight: 0.9,
+  },
+  {
     id: "pace",
     label: "pace around",
     gerund: "pacing",

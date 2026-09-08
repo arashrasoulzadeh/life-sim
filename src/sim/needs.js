@@ -12,9 +12,9 @@ const BASE_DECAY = {
   curiosity: 0.6,
 };
 
-export function decayNeeds(needs, p, dt, isNight) {
+export function decayNeeds(needs, p, dt, isNight, mul = 1) {
   for (const id of NEED_IDS) {
-    let rate = BASE_DECAY[id] * (1 + p.restlessness * 0.5);
+    let rate = BASE_DECAY[id] * (1 + p.restlessness * 0.5) * mul;
     if (isNight && id === "energy") rate *= 1.7; // tiredness compounds at night
     if (isNight && id === "social") rate *= 0.4; // nobody expects you at 3am
     needs[id] = clamp(needs[id] - rate * dt);

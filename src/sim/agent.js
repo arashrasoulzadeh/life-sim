@@ -46,7 +46,8 @@ function personalityBoost(p, need) {
   }
 }
 
-export function scoreActions(agent, isNight, requestsWaiting, rng) {
+export function scoreActions(agent, env, rng) {
+  const { isNight, requestsWaiting, wantsReflect } = env;
   const { needs, personality } = agent;
   return ACTIONS.map((action) => {
     let score = action.weight;
@@ -67,6 +68,11 @@ export function scoreActions(agent, isNight, requestsWaiting, rng) {
       if (isNight) score *= 0.5;
     }
     if (action.id === "chat" && isNight) score *= 0.3;
+    if (action.id === "reflect") {
+      // a quiet-evening habit: only when the day is winding down and calm
+      score *= wantsReflect ? 2.4 + personality.curiosity * 1.4 : 0.02;
+      if (requestsWaiting >= 3) score *= 0.3;
+    }
     if (action.id === "pace") score *= 0.4 + personality.restlessness * 1.6;
     if (action.id === "rest" && needs.energy > 60) score *= 0.4;
 
@@ -81,7 +87,9 @@ export function scoreActions(agent, isNight, requestsWaiting, rng) {
   }).sort((a, b) => b.score - a.score);
 }
 
-export function stepAgent(agent, dt, isNight, requestsWaiting, rng, onRequestResolved) {
+export function stepAgent(agent, dt, env, rng) {
+  const { isNight, requestsWaiting, onRequestResolved, onReflect } = env;
+  const walkSpeed = WALK_SPEED * (env.speedMul ?? 1);
   // walking between rooms: a brief off-screen abstraction (agent doing hallway things)
   if (agent.transit > 0) {
     agent.transit -= dt;
@@ -106,7 +114,7 @@ export function stepAgent(agent, dt, isNight, requestsWaiting, rng, onRequestRes
       agent.y = agent.ty;
       agent.moving = false;
     } else {
-      const step = Math.min(dist, WALK_SPEED * dt);
+      const step = Math.min(dist, walkSpeed * dt);
       agent.x += (dx / dist) * step;
       agent.y += (dy / dist) * step;
       agent.facing = dx < 0 ? -1 : 1;
@@ -126,10 +134,11 @@ export function stepAgent(agent, dt, isNight, requestsWaiting, rng, onRequestRes
       }
     }
     if (agent.actionLeft > 0) return;
+    if (agent.action.id === "reflect") onReflect();
   }
 
   // decide what to do next
-  const ranked = scoreActions(agent, isNight, requestsWaiting, rng);
+  const ranked = scoreActions(agent, env, rng);
   const chosen = ranked[0].action;
   agent.action = chosen;
   agent.actionLeft = rng.range(chosen.duration[0], chosen.duration[1]);
@@ -156,5 +165,6 @@ function thoughtFor(agent, a, isNight, reqs) {
   if (a.id === "gaze") return n.curiosity < 25 ? "need to see something new" : "what's out there today";
   if (a.id === "chat") return n.social < 25 ? "it's been quiet. reaching out" : "wonder how the others are";
   if (a.id === "rest") return "sitting down for a bit";
+  if (a.id === "reflect") return "what was today, really";
   return "stretching my legs";
 }
