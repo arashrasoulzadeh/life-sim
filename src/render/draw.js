@@ -21,6 +21,9 @@ const TRAIT_COLOR = {
   restlessness: "#c98bd0",
 };
 
+// clickable hit-box for the mute toggle, in canvas pixels
+export const MUTE_RECT = { x: 488, y: 451, w: 20, h: 18 };
+
 export function render(ctx, w, ui) {
   ctx.imageSmoothingEnabled = false;
   drawRoom(ctx, w);
@@ -34,6 +37,7 @@ export function render(ctx, w, ui) {
     ctx.fillRect(0, 0, W, PLAYFIELD_H);
   }
   drawStrip(ctx, w);
+  drawMute(ctx, ui.muted);
   if (ui.debug) drawDebug(ctx, w);
   if (ui.showMemory) drawMemoryOverlay(ctx, w);
   if (ui.showCard) drawSeedCard(ctx, w);
@@ -276,11 +280,38 @@ function drawStrip(ctx, w) {
   ctx.fillText(`queue ${"|".repeat(w.requests) || "-"}`, 332, top + 22);
   ctx.fillStyle = "#5f6675";
   ctx.font = "8px ui-monospace, Menlo, monospace";
-  ctx.fillText(`${w.weather.sky} · mood ${moodWord(w.mood)} · seed ${w.seed}`, 332, top + 38);
+  ctx.fillText(`${w.weather.sky} · mood ${moodWord(w.mood)}`, 332, top + 38);
 
   ctx.fillStyle = "#8b93a3";
   ctx.font = "11px ui-monospace, Menlo, monospace";
   ctx.fillText(`> ${w.agent.lastThought}`, 12, top + 46);
+}
+
+function drawMute(ctx, muted) {
+  const r = MUTE_RECT;
+  ctx.fillStyle = muted ? "#e06a5c" : "#7f8a9c";
+  // speaker body
+  ctx.fillRect(r.x, r.y + 5, 4, 8);
+  ctx.beginPath();
+  ctx.moveTo(r.x + 4, r.y + 9);
+  ctx.lineTo(r.x + 10, r.y + 3);
+  ctx.lineTo(r.x + 10, r.y + 15);
+  ctx.closePath();
+  ctx.fill();
+  if (muted) {
+    ctx.strokeStyle = "#e06a5c";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(r.x + 12, r.y + 4);
+    ctx.lineTo(r.x + 19, r.y + 14);
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = "#7f8a9c";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(r.x + 11, r.y + 9, 4, -0.9, 0.9);
+    ctx.stroke();
+  }
 }
 
 function drawBar(ctx, x, y, wdt, hgt, val, color, label) {

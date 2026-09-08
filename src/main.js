@@ -1,6 +1,6 @@
 import { randomSeed } from "./engine/rng.js";
 import * as Audio from "./engine/audio.js";
-import { render } from "./render/draw.js";
+import { render, MUTE_RECT } from "./render/draw.js";
 import { createWorld, tick, drainFx, rainLevel } from "./sim/world.js";
 
 const canvas = document.getElementById("screen");
@@ -10,11 +10,15 @@ const params = new URLSearchParams(location.search);
 const seed = params.has("seed") ? Number(params.get("seed")) >>> 0 : randomSeed();
 
 let world = createWorld(seed);
-const ui = { debug: params.has("debug"), showMemory: false, showCard: false };
+const ui = { debug: params.has("debug"), showMemory: false, showCard: false, muted: false };
 
 let speed = 1;
-let muted = false;
 let moodPush = 0;
+
+function toggleMute() {
+  ui.muted = !ui.muted;
+  Audio.setMuted(ui.muted);
+}
 
 const FIXED_DT = 1 / 30;
 let acc = 0;
@@ -52,7 +56,16 @@ function begin() {
   Audio.start();
 }
 
-canvas.addEventListener("click", () => {
+canvas.addEventListener("click", (e) => {
+  const r = canvas.getBoundingClientRect();
+  const cx = ((e.clientX - r.left) / r.width) * canvas.width;
+  const cy = ((e.clientY - r.top) / r.height) * canvas.height;
+  const m = MUTE_RECT;
+  if (cx >= m.x - 4 && cx <= m.x + m.w + 4 && cy >= m.y - 4 && cy <= m.y + m.h + 4) {
+    if (!world.started) begin();
+    toggleMute();
+    return;
+  }
   if (!world.started) begin();
 });
 
@@ -63,10 +76,8 @@ addEventListener("keydown", (e) => {
   else if (k === "d") ui.debug = !ui.debug;
   else if (k === "m") ui.showMemory = !ui.showMemory;
   else if (k === "s") ui.showCard = !ui.showCard;
-  else if (k === "p") {
-    muted = !muted;
-    Audio.setMuted(muted);
-  } else if (k === "r") {
+  else if (k === "p") toggleMute();
+  else if (k === "r") {
     world = createWorld(randomSeed());
     world.started = true;
     history.replaceState(null, "", `?seed=${world.seed}`);
