@@ -23,9 +23,27 @@ The only inputs — it's a life that runs itself:
 - `N` — jump to the top of the next in-game day
 - `M` — what this life remembers (memory grid + personality drift)
 - `S` — this-life card (seed, era, character, top memories) — screenshot to share
+- `C` — start/end-of-day conversation log
+- `L` — turn the start/end-of-day conversation on/off
 - `P` / speaker icon — sound (off by default; procedural, pitched to the seed's key)
 - `D` — debug overlay
 - `R` — start a new random life
+
+## Start / end-of-day conversation
+
+Twice a day (dawn and the evening wind-down) the agent stops to talk. It shares
+its memories and the current state of the five rooms and gets back one line of
+inner voice plus, sometimes, a change to the space — add or remove an object
+from the small whitelist in `src/sim/objects.js`. Objects give a tiny passive
+lift while the agent works in that room, so the apartment slowly adapts to how
+the life is going.
+
+- **Offline (default):** a built-in stub voice. Still talks, still rearranges rooms.
+- **With GapGPT:** put your key in `config.js` (`gapgptKey`) or in
+  `localStorage.simyou_gapgpt_key`. The model only ever toggles whitelisted
+  objects (max 2/turn) and may add one memory — every field is validated in
+  `src/sim/dialogue.js` before it touches the world.
+  To keep your key out of git: `git update-index --skip-worktree config.js`.
 - `?seed=12345` — replay a specific life · `?debug` — start with the overlay on
 
 ## Status — all six milestones done

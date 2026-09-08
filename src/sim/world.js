@@ -5,6 +5,8 @@ import { freshMemory, writeMemory, ageMemory } from "./memory.js";
 import { freshMood, updateMood } from "./mood.js";
 import { freshWeather, stepWeather, weatherCuriosity, rainIntensity } from "./weather.js";
 import { eraFor } from "./eras.js";
+import { applyEffect } from "./needs.js";
+import { OBJECTS, DEFAULT_OBJECTS } from "./objects.js";
 
 // Sim-seconds per in-game day. Real time is mapped onto sim time in main.js
 // (SIM_RATE), so all the per-second tuning below stays fixed regardless of how
@@ -58,6 +60,16 @@ export function createWorld(seed) {
     windowEvent: null,
     tally: freshTally(1),
     fx: [], // event tags drained by the audio layer
+    rooms: {
+      desk: [...DEFAULT_OBJECTS.desk],
+      kitchen: [...DEFAULT_OBJECTS.kitchen],
+      window: [...DEFAULT_OBJECTS.window],
+      couch: [...DEFAULT_OBJECTS.couch],
+      bed: [...DEFAULT_OBJECTS.bed],
+    },
+    conversation: { log: [], bubble: null, lastMorningDay: 0, lastEveningDay: 0 },
+    dialogueRequest: null, // "morning" | "evening" — picked up by main.js
+    yesterday: freshTally(0), // last completed day's tally, for the evening/morning chat
     ticks: 0,
   };
 }
@@ -112,6 +124,24 @@ export function tick(w, dt) {
     w.agent.needs.curiosity = clamp100(w.agent.needs.curiosity + weatherCuriosity(w.weather.sky) * dt);
   }
 
+  // objects in the current room give a small lift while the agent is settled there
+  if (w.agent.transit <= 0 && !w.agent.moving && w.agent.action) {
+    for (const id of w.rooms[w.agent.room]) {
+      const o = OBJECTS[id];
+      if (o && o.effect) applyEffect(w.agent.needs, o.effect, dt * 0.6);
+    }
+  }
+
+  // start / end of day conversation (consumed by main.js)
+  if (w.dayFrac >= 0.6 && w.conversation.lastEveningDay < w.day) {
+    w.conversation.lastEveningDay = w.day;
+    w.dialogueRequest = "evening";
+  }
+  if (w.conversation.bubble) {
+    w.conversation.bubble.ttl -= dt;
+    if (w.conversation.bubble.ttl <= 0) w.conversation.bubble = null;
+  }
+
   const wantsReflect =
     w.dayFrac >= 0.42 && w.dayFrac < 0.72 && w.memory.lastWrittenDay < w.day && w.requests <= 3;
 
@@ -163,7 +193,10 @@ export function rainLevel(w) {
 
 function onNewDay(w) {
   ageMemory(w.memory, w.agent.personality);
+  w.yesterday = w.tally;
   w.tally = freshTally(w.day);
+  w.conversation.lastMorningDay = w.day;
+  w.dialogueRequest = "morning";
   w.fx.push("day");
 }
 

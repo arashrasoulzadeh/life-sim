@@ -2,6 +2,8 @@ import { ROOMS } from "../sim/rooms.js";
 import { NEED_IDS } from "../sim/constants.js";
 import { moodWord, moodPosture } from "../sim/mood.js";
 import { rainIntensity } from "../sim/weather.js";
+import { CORRIDOR_Y } from "../sim/agent.js";
+import { OBJECTS } from "../sim/objects.js";
 
 export const W = 512;
 export const H = 512;
@@ -26,22 +28,178 @@ export const MUTE_RECT = { x: 488, y: 451, w: 20, h: 18 };
 
 export function render(ctx, w, ui) {
   ctx.imageSmoothingEnabled = false;
-  drawRoom(ctx, w);
-  drawFurniture(ctx, w.agent.room);
-  if (w.agent.room === "window") drawSky(ctx, w);
-  if (w.agent.room === "bed") drawMemoryWall(ctx, w);
+  const inHall = w.agent.transit > 0;
+  if (inHall) {
+    drawCorridor(ctx, w);
+  } else {
+    drawRoom(ctx, w);
+    drawFurniture(ctx, w.agent.room);
+    drawObjects(ctx, w.rooms[w.agent.room]);
+    if (w.agent.room === "window") drawSky(ctx, w);
+    if (w.agent.room === "bed") drawMemoryWall(ctx, w);
+  }
   drawAgent(ctx, w);
   drawNightTint(ctx, w);
   if (w.era.tint) {
     ctx.fillStyle = w.era.tint;
     ctx.fillRect(0, 0, W, PLAYFIELD_H);
   }
-  drawStrip(ctx, w);
+  if (!inHall) drawBubble(ctx, w);
+  drawStrip(ctx, w, ui);
   drawMute(ctx, ui.muted);
   if (ui.debug) drawDebug(ctx, w);
   if (ui.showMemory) drawMemoryOverlay(ctx, w);
   if (ui.showCard) drawSeedCard(ctx, w);
+  if (ui.showConversation) drawConversationOverlay(ctx, w);
+  if (ui.notice) drawNotice(ctx, ui.notice.text);
   if (!w.started) drawTitle(ctx, w);
+}
+
+function drawNotice(ctx, text) {
+  ctx.font = "9px ui-monospace, Menlo, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const w = ctx.measureText(text).width + 20;
+  ctx.fillStyle = "rgba(8,10,14,0.92)";
+  ctx.fillRect(W / 2 - w / 2, 8, w, 18);
+  ctx.strokeStyle = "#3d4452";
+  ctx.strokeRect(W / 2 - w / 2, 8, w, 18);
+  ctx.fillStyle = "#c8ccd4";
+  ctx.fillText(text, W / 2, 13);
+  ctx.textAlign = "left";
+}
+
+function drawCorridor(ctx, w) {
+  const light = daylight(w.dayFrac) * 0.75 + 0.1;
+  ctx.fillStyle = shade("#161a22", light);
+  ctx.fillRect(0, 0, W, PLAYFIELD_H);
+  ctx.fillStyle = shade("#242a36", light);
+  ctx.fillRect(0, CORRIDOR_Y + 8, W, PLAYFIELD_H - CORRIDOR_Y - 8);
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
+  ctx.fillRect(0, CORRIDOR_Y + 6, W, 3);
+
+  const order = ["window", "kitchen", "desk", "couch", "bed"];
+  order.forEach((rid, i) => {
+    const x = 26 + i * 94;
+    ctx.fillStyle = "#0d1017";
+    ctx.fillRect(x, CORRIDOR_Y - 66, 52, 72);
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = ROOMS[rid].palette.accent;
+    ctx.fillRect(x + 4, CORRIDOR_Y - 62, 44, 64);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = rid === w.agent.room ? "#c8ccd4" : "#3d4452";
+    ctx.font = "7px ui-monospace, Menlo, monospace";
+    ctx.textBaseline = "top";
+    ctx.fillText(rid, x + 4, CORRIDOR_Y - 78);
+  });
+
+  // pooled ceiling light
+  ctx.fillStyle = "rgba(255,240,205,0.05)";
+  ctx.beginPath();
+  ctx.moveTo(W / 2 - 40, 0);
+  ctx.lineTo(W / 2 + 40, 0);
+  ctx.lineTo(W / 2 + 130, CORRIDOR_Y);
+  ctx.lineTo(W / 2 - 130, CORRIDOR_Y);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#5f6675";
+  ctx.font = "9px ui-monospace, Menlo, monospace";
+  ctx.textBaseline = "top";
+  ctx.fillText(`— the hallway → ${w.agent.room} —`, 12, PLAYFIELD_H - 22);
+}
+
+function drawObjects(ctx, list) {
+  if (!list) return;
+  for (const id of list) {
+    const o = OBJECTS[id];
+    if (o) o.draw(ctx);
+  }
+}
+
+function drawBubble(ctx, w) {
+  const b = w.conversation && w.conversation.bubble;
+  if (!b) return;
+  const lines = wrapText(b.line || "", 32).slice(0, 3);
+  const bw = 244;
+  const bh = 20 + lines.length * 12 + (b.changes && b.changes.length ? b.changes.length * 10 + 4 : 0);
+  const bx = Math.max(8, Math.min(W - bw - 8, Math.round(w.agent.x) - bw / 2));
+  const by = 54;
+  ctx.fillStyle = "rgba(8,10,14,0.94)";
+  ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = b.source === "gapgpt" ? "#7ad0a0" : "#3d4452";
+  ctx.strokeRect(bx, by, bw, bh);
+  // little tail toward the agent
+  ctx.fillStyle = "rgba(8,10,14,0.94)";
+  const tx = Math.max(bx + 10, Math.min(bx + bw - 16, Math.round(w.agent.x) - 3));
+  ctx.fillRect(tx, by + bh, 6, 6);
+
+  ctx.fillStyle = "#5f6675";
+  ctx.font = "7px ui-monospace, Menlo, monospace";
+  ctx.textBaseline = "top";
+  ctx.fillText(`${b.phase} · day ${b.day} · ${b.source}`, bx + 8, by + 5);
+  ctx.fillStyle = "#d3d7df";
+  ctx.font = "10px ui-monospace, Menlo, monospace";
+  lines.forEach((l, i) => ctx.fillText(l, bx + 8, by + 16 + i * 12));
+  let yy = by + 16 + lines.length * 12 + 2;
+  ctx.font = "8px ui-monospace, Menlo, monospace";
+  for (const c of b.changes || []) {
+    ctx.fillStyle = c[0] === "+" ? "#7ad0a0" : "#e0b45c";
+    ctx.fillText(c, bx + 8, yy);
+    yy += 10;
+  }
+}
+
+function drawConversationOverlay(ctx, w) {
+  panel(ctx);
+  ctx.fillStyle = "#c8ccd4";
+  ctx.font = "11px ui-monospace, Menlo, monospace";
+  ctx.textBaseline = "top";
+  ctx.fillText("START & END OF DAY", 40, 40);
+  const log = (w.conversation && w.conversation.log) || [];
+  if (log.length === 0) {
+    ctx.fillStyle = "#5f6675";
+    ctx.font = "9px ui-monospace, Menlo, monospace";
+    ctx.fillText("no conversations yet", 40, 60);
+  }
+  let y = 62;
+  for (const e of log.slice(-7)) {
+    ctx.fillStyle = e.source === "gapgpt" ? "#7ad0a0" : e.source === "error" ? "#e06a5c" : "#8b93a3";
+    ctx.font = "8px ui-monospace, Menlo, monospace";
+    ctx.fillText(`day ${e.day} · ${e.phase} · ${e.source}`, 40, y);
+    ctx.fillStyle = "#c3c8d2";
+    ctx.font = "10px ui-monospace, Menlo, monospace";
+    for (const l of wrapText(e.line || "", 64).slice(0, 2)) {
+      y += 12;
+      ctx.fillText(l, 40, y);
+    }
+    for (const c of e.changes || []) {
+      y += 11;
+      ctx.fillStyle = c[0] === "+" ? "#7ad0a0" : "#e0b45c";
+      ctx.font = "8px ui-monospace, Menlo, monospace";
+      ctx.fillText("   " + c, 40, y);
+    }
+    y += 18;
+  }
+  ctx.fillStyle = "#5f6675";
+  ctx.font = "9px ui-monospace, Menlo, monospace";
+  ctx.fillText("[C] close", 40, PLAYFIELD_H - 40);
+}
+
+function wrapText(s, n) {
+  const words = String(s).split(/\s+/);
+  const out = [];
+  let line = "";
+  for (const wd of words) {
+    if ((line + " " + wd).trim().length > n) {
+      if (line) out.push(line);
+      line = wd;
+    } else {
+      line = (line + " " + wd).trim();
+    }
+  }
+  if (line) out.push(line);
+  return out;
 }
 
 function drawRoom(ctx, w) {
@@ -207,7 +365,6 @@ function drawMemoryWall(ctx, w) {
 
 function drawAgent(ctx, w) {
   const agent = w.agent;
-  if (agent.transit > 0) return;
   const x = Math.round(agent.x);
   const base = Math.round(agent.y);
   const f = agent.facing;
@@ -250,7 +407,7 @@ function drawNightTint(ctx, w) {
   ctx.fillRect(0, 0, W, PLAYFIELD_H);
 }
 
-function drawStrip(ctx, w) {
+function drawStrip(ctx, w, ui) {
   const top = PLAYFIELD_H;
   ctx.fillStyle = "#0e1116";
   ctx.fillRect(0, top, W, H - top);
@@ -280,7 +437,8 @@ function drawStrip(ctx, w) {
   ctx.fillText(`queue ${"|".repeat(w.requests) || "-"}`, 332, top + 22);
   ctx.fillStyle = "#5f6675";
   ctx.font = "8px ui-monospace, Menlo, monospace";
-  ctx.fillText(`${w.weather.sky} · mood ${moodWord(w.mood)}`, 332, top + 38);
+  const llm = ui && ui.llm ? (ui.llmSource === "gapgpt" ? " · ◆gapgpt" : " · ◇talk") : "";
+  ctx.fillText(`${w.weather.sky} · mood ${moodWord(w.mood)}${llm}`, 332, top + 38);
 
   ctx.fillStyle = "#8b93a3";
   ctx.font = "11px ui-monospace, Menlo, monospace";

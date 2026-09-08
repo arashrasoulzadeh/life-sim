@@ -3,6 +3,9 @@ import { applyEffect, pressure } from "./needs.js";
 import { ROOMS } from "./rooms.js";
 
 const WALK_SPEED = 46; // px/s
+export const CORRIDOR_Y = 316;
+export const CORRIDOR_X0 = 40;
+export const CORRIDOR_X1 = 472;
 
 export function makePersonality(rng) {
   return {
@@ -28,6 +31,7 @@ export function makeAgent(rng) {
     action: null,
     actionLeft: 0,
     transit: 0,
+    transitTotal: 1,
     workProgress: 0,
     lastThought: "waking up",
   };
@@ -90,9 +94,14 @@ export function scoreActions(agent, env, rng) {
 export function stepAgent(agent, dt, env, rng) {
   const { isNight, requestsWaiting, onRequestResolved, onReflect } = env;
   const walkSpeed = WALK_SPEED * (env.speedMul ?? 1);
-  // walking between rooms: a brief off-screen abstraction (agent doing hallway things)
+  // walking the hallway between rooms — visible: the agent crosses a corridor
   if (agent.transit > 0) {
     agent.transit -= dt;
+    const p = Math.min(1, Math.max(0, 1 - agent.transit / agent.transitTotal));
+    agent.x = CORRIDOR_X0 + p * (CORRIDOR_X1 - CORRIDOR_X0);
+    agent.y = CORRIDOR_Y;
+    agent.facing = 1;
+    agent.moving = true;
     if (agent.transit <= 0) {
       const spot = ROOMS[agent.room].spot;
       agent.x = spot.x < 256 ? spot.x - 60 : spot.x + 60;
@@ -147,8 +156,11 @@ export function stepAgent(agent, dt, env, rng) {
 
   if (chosen.room !== agent.room) {
     agent.room = chosen.room;
-    agent.transit = rng.range(1.1, 2.2);
-    agent.moving = false;
+    agent.transit = rng.range(4, 7);
+    agent.transitTotal = agent.transit;
+    agent.x = CORRIDOR_X0;
+    agent.y = CORRIDOR_Y;
+    agent.moving = true;
   } else {
     const spot = ROOMS[agent.room].spot;
     agent.tx = spot.x + rng.range(-6, 6);
