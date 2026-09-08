@@ -428,6 +428,9 @@ function drawTitle(ctx, w) {
   ctx.fillStyle = `rgba(230,233,240,${0.35 + pulse * 0.5})`;
   ctx.font = "12px ui-monospace, Menlo, monospace";
   ctx.fillText("click to begin", W / 2, H / 2 + 44);
+  ctx.fillStyle = "#5f6675";
+  ctx.font = "9px ui-monospace, Menlo, monospace";
+  ctx.fillText("sound is off — press P or click the speaker", W / 2, H / 2 + 68);
   ctx.textAlign = "left";
 }
 

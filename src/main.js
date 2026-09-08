@@ -10,7 +10,7 @@ const params = new URLSearchParams(location.search);
 const seed = params.has("seed") ? Number(params.get("seed")) >>> 0 : randomSeed();
 
 let world = createWorld(seed);
-const ui = { debug: params.has("debug"), showMemory: false, showCard: false, muted: false };
+const ui = { debug: params.has("debug"), showMemory: false, showCard: false, muted: true };
 
 let speed = 1;
 let moodPush = 0;
@@ -38,6 +38,7 @@ function frame(now) {
     const fx = drainFx(world);
     if (fx) for (const tag of fx) Audio.blip(tag);
     Audio.setRain(rainLevel(world));
+    Audio.update();
     moodPush -= elapsed;
     if (moodPush <= 0) {
       Audio.setMood(world.mood.valence);
@@ -53,7 +54,18 @@ requestAnimationFrame(frame);
 function begin() {
   if (world.started) return;
   world.started = true;
-  Audio.start();
+  Audio.start(world.seed);
+  Audio.setMuted(ui.muted); // sound is off by default — click the speaker or press P
+}
+
+// run the sim forward to the top of the next in-game day (full simulation, no skipped state)
+function skipToNextDay() {
+  if (!world.started) return;
+  const target = world.day + 1;
+  let guard = 0;
+  while (world.day < target && guard++ < 20000) tick(world, FIXED_DT);
+  drainFx(world); // drop the burst of events so it doesn't machine-gun the audio
+  acc = 0;
 }
 
 canvas.addEventListener("click", (e) => {
@@ -73,6 +85,7 @@ addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
   if (!world.started && (k === " " || k === "enter")) return begin();
   if (k === "f") speed = speed === 1 ? 4 : 1;
+  else if (k === "n") skipToNextDay();
   else if (k === "d") ui.debug = !ui.debug;
   else if (k === "m") ui.showMemory = !ui.showMemory;
   else if (k === "s") ui.showCard = !ui.showCard;
