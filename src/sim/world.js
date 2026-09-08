@@ -6,7 +6,10 @@ import { freshMood, updateMood } from "./mood.js";
 import { freshWeather, stepWeather, weatherCuriosity, rainIntensity } from "./weather.js";
 import { eraFor } from "./eras.js";
 
-export const DAY_LENGTH = 600; // real seconds per in-game day
+// Sim-seconds per in-game day. Real time is mapped onto sim time in main.js
+// (SIM_RATE), so all the per-second tuning below stays fixed regardless of how
+// fast the clock is set to run.
+export const DAY_LENGTH = 600;
 const NIGHT_FROM = 0.66;
 
 const WINDOW_EVENTS = [

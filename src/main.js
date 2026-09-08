@@ -1,7 +1,16 @@
 import { randomSeed } from "./engine/rng.js";
 import * as Audio from "./engine/audio.js";
 import { render, MUTE_RECT } from "./render/draw.js";
-import { createWorld, tick, drainFx, rainLevel } from "./sim/world.js";
+import { createWorld, tick, drainFx, rainLevel, DAY_LENGTH } from "./sim/world.js";
+
+// time mapping: how many in-game minutes pass per real second
+const BASE_MIN_PER_SEC = 20; // default clock
+const FF_MIN_PER_SEC = 60; // [F] fast-forward: one in-game hour per second
+const MIN_PER_DAY = 24 * 60;
+// convert an in-game-minutes/sec rate into sim-seconds fed to tick() per real second
+const rateFor = (minPerSec) => (minPerSec / MIN_PER_DAY) * DAY_LENGTH;
+const BASE_RATE = rateFor(BASE_MIN_PER_SEC);
+const FF_MULT = FF_MIN_PER_SEC / BASE_MIN_PER_SEC;
 
 const canvas = document.getElementById("screen");
 const ctx = canvas.getContext("2d", { alpha: false });
@@ -30,7 +39,8 @@ function frame(now) {
   if (elapsed > 0.25) elapsed = 0.25;
 
   if (world.started) {
-    acc += elapsed * speed;
+    acc += elapsed * BASE_RATE * speed;
+    if (acc > 2) acc = 2; // cap catch-up after a stall (~60 ticks)
     while (acc >= FIXED_DT) {
       tick(world, FIXED_DT);
       acc -= FIXED_DT;
@@ -84,7 +94,7 @@ canvas.addEventListener("click", (e) => {
 addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
   if (!world.started && (k === " " || k === "enter")) return begin();
-  if (k === "f") speed = speed === 1 ? 4 : 1;
+  if (k === "f") speed = speed === 1 ? FF_MULT : 1;
   else if (k === "n") skipToNextDay();
   else if (k === "d") ui.debug = !ui.debug;
   else if (k === "m") ui.showMemory = !ui.showMemory;
