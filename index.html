@@ -128,9 +128,9 @@
       #rooms .light { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: soft-light; }
       #rooms .room-sign {
         position: absolute; right: 5px; top: 4px; font-size: 3cqmin;
-        color: rgba(255,255,255,0.5); letter-spacing: 0.03em; pointer-events: none;
-        background: rgba(0,0,0,0.28); padding: 0 3px; border-radius: 2px; max-width: 46%;
-        overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+        color: #fff; letter-spacing: 0.03em; pointer-events: none;
+        text-shadow: 0 0 2px #000, 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+        max-width: 46%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
       }
       #rooms.zoom .room-sign { font-size: 1.6cqmin; }
       #rooms .furn { position: absolute; border-radius: 2px; overflow: hidden; }
@@ -141,7 +141,8 @@
       #rooms.zoom .obj { font-size: 5cqmin; }
       #rooms .room-tag {
         position: absolute; left: 4px; top: 3px; font-size: 3cqmin;
-        color: rgba(255, 255, 255, 0.32); letter-spacing: 0.04em; pointer-events: none;
+        color: #fff; letter-spacing: 0.04em; pointer-events: none;
+        text-shadow: 0 0 2px #000, 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
       }
       #rooms.zoom .room-tag { display: none; }
       .ifr {

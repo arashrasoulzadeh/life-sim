@@ -17,7 +17,7 @@ import { spouseWord } from "./people.js";
 import { psycheLine, isConflictToday, resolveLean } from "./psyche.js";
 import { canWrite, cleanWriting, writingPrompt } from "./writing.js";
 import { isBroken, repair, repairCost, wearPct } from "./wear.js";
-import { WALL_PATTERNS, FLOOR_PATTERNS } from "./roomrender.js";
+import { WALL_PATTERNS, FLOOR_PATTERNS, roomStyle } from "./roomrender.js";
 import { ART_STYLES, cleanWindowArt, windowArtLabel } from "./windowart.js";
 
 const VOTE_LABELS = { work: "work hard", rest: "rest & recover", social: "reach out to others", learn: "learn something", tend: "tend the home" };
@@ -49,10 +49,21 @@ export function buildPrompt(w, phase, ctx = {}) {
     .filter(Boolean)
     .join("\n");
 
+  const rs = (r) => {
+    try {
+      return roomStyle(r, w.roomStyle);
+    } catch {
+      return null;
+    }
+  };
   const rooms = w.roomOrder
     .map((r) => {
-      const items = (w.rooms[r] || []).map((id) => `${id} (${OBJECTS[id].label}, ${priceOf(id)}c)`).join(", ") || "bare";
-      return `  ${r}: ${items}${r === "desk" ? " [+ permanent monitor, unsellable]" : ""}`;
+      const items = (w.rooms[r] || []).map((id) => `${id} (${OBJECTS[id]?.label || "?"}, ${priceOf(id)}c)`).join(", ") || "bare";
+      const st = rs(r);
+      const styleBits = st
+        ? ` — name "${st.name}", wall ${st.palette.wall}/${st.pattern}, floor ${st.palette.floor}/${st.floor}, accent ${st.palette.accent}, furniture ${st.furn}${st.sign ? `, sign "${st.sign}"` : ""}`
+        : "";
+      return `  ${r}: ${items}${r === "desk" ? " [+ permanent monitor, unsellable]" : ""}${styleBits}`;
     })
     .join("\n");
   const catalog = Object.entries(MARKET)
@@ -114,9 +125,10 @@ export function buildPrompt(w, phase, ctx = {}) {
         '  "commissionGame": {"title": string <=48, "kernel": string, "params": object} or null  (FREE — make one whenever you have an idea),',
         '  "routine": [{"op": string, "arg": optional}]  0-10 playful in-place moves, or null,',
         '  "repair": [{"object": id}]  0-2 worn / broken things to fix (costs a small fee), or null,',
-        `  "restyle": [{"room","name"?,"wall"?,"floor"?,"accent"?,"pattern"?,"floorPattern"?,"light"?,"sign"?,"nickname"?}]  0-6 rooms:`,
-        `     name <=24, wall/floor/accent are #rrggbb, pattern (wall) one of ${WALL_PATTERNS.join("|")}, floorPattern one of ${FLOOR_PATTERNS.join("|")},`,
-        `     light {"warmth":0-1,"level":0.55-1.35}, sign is a short text <=40 hung on the wall, nickname {"objectId":"a name <=20"} for things in that room. or null,`,
+        `  "restyle": [{"room","name"?,"wall"?,"floor"?,"accent"?,"furn"?,"pattern"?,"floorPattern"?,"light"?,"sign"?,"nickname"?}]  0-6 rooms:`,
+        `     name <=24; wall/floor/accent/furn are #rrggbb (furn = the wood/fabric of that room's furniture); pattern (wall) one of ${WALL_PATTERNS.join("|")}; floorPattern one of ${FLOOR_PATTERNS.join("|")};`,
+        `     light {"warmth":0-1,"level":0.55-1.35}; sign is a short text <=40 hung on the wall; nickname {"objectId":"a name <=20"}.`,
+        `     The CURRENT name / colours / patterns of every room are listed in the "Rooms:" block below — only include a field when you actually want to change it from what's there. or null,`,
         `  "windowArt": {"style": one of ${ART_STYLES.join("|")}, "hue": 0-360, "hue2": 0-360, "density": 0.2-1} or null  (generative art for the window),`,
         `  "keepsake": an object id you own and will never sell, or "" to clear, or null,`,
         '  "newMemory": {...} or null',
@@ -242,6 +254,10 @@ function applyRestyle(w, list) {
     }
     if (typeof r.floorPattern === "string" && FLOOR_PATTERNS.includes(r.floorPattern)) {
       cur.floorPattern = r.floorPattern;
+      touched = true;
+    }
+    if (typeof r.furn === "string" && HEX.test(r.furn)) {
+      cur.furn = r.furn.toLowerCase();
       touched = true;
     }
     if (r.light && typeof r.light === "object") {

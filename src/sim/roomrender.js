@@ -17,26 +17,31 @@ const SLOTS = [
 ];
 export const OBJECT_SLOTS = SLOTS;
 
+// `f` is the room's furniture colour (AI-settable via restyle.furn, default per
+// room). The big surfaces read `var(--furn)`; screens / linens keep their own.
 const FURNITURE = {
   desk:
-    '<div class="furn" style="left:33%;width:46%;top:55%;height:3.5%;background:#5a4632"></div>' +
-    '<div class="furn monitor" style="left:36%;width:28%;top:34%;height:21%;background:#0a0a0a;box-shadow:inset 0 0 0 2px #000">' +
+    '<div class="furn" style="left:19%;width:62%;top:52%;height:5%;background:var(--furn)"></div>' +
+    '<div class="furn" style="left:23%;width:5%;top:57%;height:14%;background:var(--furn);filter:brightness(0.8)"></div>' +
+    '<div class="furn" style="left:72%;width:5%;top:57%;height:14%;background:var(--furn);filter:brightness(0.8)"></div>' +
+    '<div class="furn monitor" style="left:29%;width:42%;top:22%;height:30%;background:#0a0a0a;box-shadow:inset 0 0 0 2px #000">' +
     '<iframe class="ifr site-frame" title="monitor" sandbox="allow-scripts allow-popups allow-forms allow-same-origin allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" loading="lazy"></iframe>' +
     '<span class="frame-cap site-cap"></span></div>',
   kitchen:
     '<div class="furn" style="left:9%;width:39%;top:52%;height:3%;background:#7d7d86"></div>' +
-    '<div class="furn" style="left:9%;width:39%;top:55%;height:10%;background:#3a3a40"></div>',
+    '<div class="furn" style="left:9%;width:39%;top:55%;height:10%;background:var(--furn)"></div>',
   window: '<div class="furn win" style="left:28%;width:44%;top:14%;height:34%;background:#0c1430"></div>', // background swapped in by winFurn()
   couch:
-    '<div class="furn" style="left:53%;width:31%;top:56%;height:13%;background:#463a56;border-radius:6px 6px 0 0"></div>',
+    '<div class="furn" style="left:53%;width:31%;top:56%;height:13%;background:var(--furn);border-radius:6px 6px 0 0"></div>',
   bed:
-    '<div class="furn" style="left:34%;width:35%;top:57%;height:12%;background:#4a4038"></div>' +
+    '<div class="furn" style="left:34%;width:35%;top:57%;height:12%;background:var(--furn)"></div>' +
     '<div class="furn" style="left:35%;width:9%;top:53%;height:4.5%;background:#e8e8ee"></div>',
   game:
     '<div class="furn game-tv" style="left:30%;width:40%;top:18%;height:27%;background:#0a0a0a;box-shadow:inset 0 0 0 2px #000">' +
     '<iframe class="ifr game-frame" title="game" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe></div>' +
-    '<div class="furn game-stand" style="left:30%;width:40%;top:45%;height:2.5%;background:#3a4a40"></div>',
+    '<div class="furn game-stand" style="left:30%;width:40%;top:45%;height:2.5%;background:var(--furn)"></div>',
 };
+const FURN_DEFAULT = { desk: "#5a4632", kitchen: "#3a3a40", window: "#243046", couch: "#463a56", bed: "#4a4038", game: "#3a4a40" };
 
 function esc(s) {
   return String(s).replace(/[<>"&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", '"': "&quot;", "&": "&amp;" })[c]);
@@ -75,6 +80,7 @@ export function roomStyle(roomId, style) {
     light,
     sign: typeof s.sign === "string" && s.sign.trim() ? s.sign.replace(/[<>]/g, "").trim().slice(0, 40) : "",
     names: s.names && typeof s.names === "object" ? s.names : {},
+    furn: /^#[0-9a-fA-F]{6}$/.test(s.furn || "") ? s.furn.toLowerCase() : FURN_DEFAULT[roomId] || "#463a56",
   };
 }
 
@@ -101,7 +107,7 @@ export function roomHtml(roomId, objects, style, plants, wear, windowArt) {
   const st = roomStyle(roomId, style);
   const p = st.palette;
   return (
-    `<div class="room" data-room="${roomId}" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent}">` +
+    `<div class="room" data-room="${roomId}" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent};--furn:${st.furn}">` +
     `<div class="wall" data-pattern="${st.pattern}"></div><div class="floor" data-pattern="${st.floor}"></div>` +
     lightLayer(st.light) +
     (roomId === "window" ? winFurn(windowArt) : FURNITURE[roomId] || "") +
@@ -145,6 +151,9 @@ export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, wind
     pattern: st.pattern,
     floor: st.floor,
     sign: st.sign,
+    furn: st.furn,
+    light: st.light,
+    names: st.names,
     objects: [...objects],
     meta: objectsMeta(roomId, objects, objDay, plants, wear, st.names, keepsake),
     html: roomHtml(roomId, objects, style, plants, wear, windowArt),

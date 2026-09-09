@@ -160,9 +160,19 @@ export function tick(w, dt) {
     if (w.agent.room === "window") w.agent.needs.curiosity = Math.min(100, w.agent.needs.curiosity + 18);
   }
 
-  // a backed-up queue erodes reputation; a light queue slowly restores it
-  if (w.requests >= 5) w.reputation = clamp100(w.reputation - 0.22 * dt);
-  else if (w.requests <= 1) w.reputation = clamp100(w.reputation + 0.35 * dt);
+  // a badly backed-up queue erodes reputation; anything short of that lets it
+  // recover, and it always drifts toward a "reliable enough" baseline
+  if (w.requests >= 8) w.reputation = clamp100(w.reputation - 0.14 * dt);
+  else if (w.requests <= 4) w.reputation = clamp100(w.reputation + 0.55 * dt);
+  w.reputation = clamp100(w.reputation + (60 - w.reputation) * 0.02 * dt);
+
+  // a request left unanswered too long is eventually withdrawn (keeps the
+  // queue from pinning at max when the agent is busy living)
+  w._reqDecay = (w._reqDecay || 0) + dt;
+  if (w._reqDecay > 40) {
+    w._reqDecay = 0;
+    if (w.requests > 2) w.requests--;
+  }
 
   decayNeeds(w.agent.needs, w.agent.personality, dt, w.isNight, w.era.decayMul);
   tickSkills(w.agent, dt);
@@ -275,7 +285,7 @@ export function tick(w, dt) {
       onRequestResolved: () => {
         w.requests = Math.max(0, w.requests - 1);
         w.tokens += 3 + Math.round(w.rng.range(0, 4));
-        w.reputation = clamp100(w.reputation + 1.5);
+        w.reputation = clamp100(w.reputation + 2.4);
         w.tally.resolved++;
         w.fx.push("resolve");
       },
