@@ -1,55 +1,81 @@
 # Deploying SimYou to life.meetarash.ir
 
 One always-on Node process runs the single life and persists it to SQLite.
-Browsers connect to `/stream` (Server-Sent Events) and only render.
+Browsers connect to `/stream` (SSE) and only render. Deploy is **git-based**:
+push from your machine, `git pull` on the server, systemd restarts it.
 
 ## Requirements
 
 - **Node ≥ 22.5** (uses the built-in `node:sqlite` — no npm packages at all).
   Check: `node -v`. On 22.5–23.3 add `--experimental-sqlite` to `ExecStart`.
-- nginx + certbot for TLS.
+- git, nginx, certbot.
 - DNS: `life.meetarash.ir` → the server's IP.
+- A git remote both machines can reach (GitHub/GitLab/self-hosted).
 
-## 1. Put the code on the server
+Secrets never go in git. `.env`, `sites.json`, `*.db` are `.gitignore`d and are
+created **once, directly on the server**.
+
+---
+
+## First time
+
+### 1. Push from your machine
+
+```bash
+git remote add origin git@github.com:arashrasoulzadeh/life-sim.git
+git branch -M main
+git push -u origin main
+```
+
+### 2. On the server — clone
 
 ```bash
 sudo useradd --system --home /opt/simyou --shell /usr/sbin/nologin simyou
 sudo mkdir -p /opt/simyou
-sudo rsync -a --exclude node_modules --exclude '.git' ./ /opt/simyou/   # or git clone
-sudo chown -R simyou:simyou /opt/simyou
+sudo chown simyou:simyou /opt/simyou
+sudo -u simyou git clone git@github.com:arashrasoulzadeh/life-sim.git /opt/simyou
 ```
 
-## 2. Configure
+(For a read-only public repo, `https://github.com/arashrasoulzadeh/life-sim.git`
+works without an SSH key.)
+
+### 3. On the server — configure (not in git)
 
 ```bash
-sudo -u simyou cp /opt/simyou/.env.example /opt/simyou/.env
-sudo -u simyou nano /opt/simyou/.env
+cd /opt/simyou
+sudo -u simyou cp .env.example .env
+sudo -u simyou nano .env
 ```
 
-Set `SIMYOU_SEED` to the life you want (pick once, never change it),
-`SIMYOU_DB=/var/lib/simyou/simyou.db`, and paste your GapGPT key into
-`SIMYOU_GAPGPT_KEY` (leave blank for the offline voice).
+Set:
+- `SIMYOU_SEED` — the life to run. **Pick once, never change it.**
+- `SIMYOU_DB=/var/lib/simyou/simyou.db`
+- `SIMYOU_SITES=/opt/simyou/sites.json`
+- `SIMYOU_GAPGPT_KEY=` — your GapGPT key (blank = offline voice, still works)
 
-Then create `sites.json` (from `sites.example.json`) — the pages shown on the
-desk monitor. **URLs must allow iframe embedding** (your own pages are safest).
-Viewers watching the monitor earn the life coins (`ratePerVisitorDay` each), which
-it spends on room objects and on commissioning games. Without `sites.json` it
-simply never earns and buys nothing.
+```bash
+sudo -u simyou cp sites.example.json sites.json
+sudo -u simyou nano sites.json
+```
 
-## 3. systemd
+Put real URLs that **allow iframe embedding** (`X-Frame-Options` not `DENY`, no
+restrictive `frame-ancestors`) — your own pages are safest. Viewers watching
+these on the desk monitor is how the life earns coins. No `sites.json` → it never
+earns and buys nothing.
+
+### 4. systemd
 
 ```bash
 sudo cp /opt/simyou/deploy/simyou.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now simyou
-sudo systemctl status simyou
 journalctl -u simyou -f
 ```
 
-The life now runs 24/7. `systemctl restart simyou` is safe — state is
-persisted every 5s and on shutdown, and resumed from the DB on start.
+`StateDirectory=simyou` in the unit creates `/var/lib/simyou` (mode 0750, owned
+by the service user) for the DB.
 
-## 4. nginx + TLS
+### 5. nginx + TLS
 
 ```bash
 sudo cp /opt/simyou/deploy/life.meetarash.ir.conf /etc/nginx/sites-available/life.meetarash.ir
@@ -58,33 +84,53 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d life.meetarash.ir
 ```
 
-Open https://life.meetarash.ir — the life is already living; click once to
-enable sound.
+Open https://life.meetarash.ir — the life is already living. Click once for sound.
+
+---
+
+## Updating (every deploy after the first)
+
+```bash
+# your machine
+git push
+
+# the server
+cd /opt/simyou
+sudo -u simyou git pull
+sudo systemctl restart simyou
+```
+
+State (bank, memories, rooms, day, personality…) is persisted every 5s and on
+shutdown, and resumed from SQLite on start — a restart never loses the life.
+`.env` and `sites.json` are untracked, so `git pull` leaves them alone.
+
+If a deploy changes `deploy/simyou.service` or the nginx conf, re-copy that file
+and `daemon-reload` / `nginx -s reload`.
+
+---
 
 ## Operating
 
 | want | do |
 |---|---|
-| watch the logs | `journalctl -u simyou -f` |
-| inspect the life | `sqlite3 /var/lib/simyou/simyou.db 'select * from conversations order by rowid desc limit 20;'` |
-| the memories (infinite) | `sqlite3 /var/lib/simyou/simyou.db 'select txt,trait,dir,weight,archived from memories order by weight desc limit 40;'` |
+| logs | `journalctl -u simyou -f` |
 | the money | `sqlite3 /var/lib/simyou/simyou.db 'select balance from bank; select ts,kind,amount,note from ledger order by rowid desc limit 20;'` |
-| the games it wrote | `sqlite3 /var/lib/simyou/simyou.db 'select id,title,created_day,plays,bytes from games;'` |
-| every LLM call | `sqlite3 /var/lib/simyou/simyou.db 'select ts,phase,status,content from llm_calls order by rowid desc limit 20;'` |
-| pause the API spend | set `SIMYOU_DIALOGUE=off` in `.env`, `systemctl restart simyou` (offline voice takes over) |
-| start the life over | stop the service, `delete from state where seed='<seed>'` (or `rm` the db), start again |
+| the memories (infinite) | `sqlite3 … 'select txt,trait,weight,archived from memories order by weight desc limit 40;'` |
+| the games it wrote | `sqlite3 … 'select id,title,created_day,plays,bytes from games;'` |
+| every LLM call | `sqlite3 … 'select ts,phase,status,content from llm_calls order by rowid desc limit 20;'` |
+| pause the API spend | `SIMYOU_DIALOGUE=off` in `.env`, `systemctl restart simyou` (offline voice takes over) |
+| change the sites | edit `/opt/simyou/sites.json`, `systemctl restart simyou` |
+| start the life over | `systemctl stop simyou`; `sqlite3 … "delete from state where seed='<seed>'"` (or delete the db); `systemctl start simyou` |
 
 ## Cost
 
-At 3 in-game min/sec a day passes every ~8 real minutes, so the model is
-called ~2× per 8 min ≈ 360 calls/day. With `gpt-4o-mini` that's a few cents
-a day. To cut it, raise the seconds-per-tick by lowering the pace constant in
-`server.mjs` (`BASE_RATE`), or run `SIMYOU_DIALOGUE=off`.
+At 3 in-game min/sec a day passes every ~8 real minutes → the model is called
+~2× per 8 min ≈ 360 calls/day. With `gpt-4o-mini` that's a few cents a day.
+Cheaper: raise the pace constant `BASE_RATE` in `server.mjs`, or
+`SIMYOU_DIALOGUE=off`.
 
 ## Endpoints
 
-- `/` — the viewer
-- `/stream` — SSE state feed (~7/s)
-- `/state` — one-shot JSON snapshot
-- `/api/conversations`, `/api/memories` — read-only history
-- `/worlds/<seed>/<room>.json` — a room's current contents
+`/` viewer · `/stream` SSE · `/state` snapshot · `/api/rooms` `/api/bank`
+`/api/ledger` `/api/conversations` `/api/memories` `/api/games` · `/api/sites`
+`/api/impression` (viewer attention) · `/games/:id` (sandboxed game HTML)
