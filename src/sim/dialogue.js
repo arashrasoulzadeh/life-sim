@@ -130,7 +130,7 @@ export function buildPrompt(w, phase, ctx = {}) {
         `routine ops (combine only these, nothing else): ${ROUTINE_OPS.join(", ")}. "say" takes a short arg, "wait" a number 1-6, "face" left/right. You cannot invent moves or write code — ever.`,
         "The six rooms are fixed — you may rename and recolour them, never add / remove / merge them, and the desk monitor always stays (it is your income).",
         ...commonRules,
-        "Buying objects costs coins — spend within budget. Making a game is free, so make one whenever it feels right.",
+        `You have ${Math.round(w.bank)} coins. If the bank is over ~120 and something in the marketplace would make the home nicer or your day easier, BUY it (1-2 things) — a bare flat is a sad flat. Only skip buying when money is genuinely tight. Making a game is free, so make one whenever it feels right.`,
       ].join("\n")
     : [
         "You are the inner voice of SimYou, an AI assistant in a six-room apartment. This is the morning.",

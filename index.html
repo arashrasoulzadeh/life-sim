@@ -149,6 +149,15 @@
         border: 0; background: #05070a; pointer-events: none;
       }
       #rooms .cell.playable .game-frame { pointer-events: auto; }
+      /* zoomed into the game room: the screen fills the view and is playable */
+      #rooms.zoom .cell.playable .game-tv {
+        left: 3% !important; width: 94% !important; top: 4% !important; height: 82% !important;
+        box-shadow: 0 0 0 2px #000, 0 0 40px rgba(0,0,0,0.6);
+        z-index: 3;
+      }
+      #rooms.zoom .cell.playable .game-stand {
+        top: 86% !important; left: 40% !important; width: 20% !important; height: 3% !important;
+      }
       #followbtn[data-on="1"] { background: #1f3a2c; border-color: #3d6b52; color: #9ee6c0; }
       .frame-cap {
         position: absolute; left: 0; right: 0; bottom: 0;

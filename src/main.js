@@ -90,6 +90,9 @@ function setZoom(z) {
 }
 applyZoomClass();
 
+const shownHtml = {}; // last server HTML per room — compared to the source, not
+// the live DOM (which we mutate by injecting iframe src), so we only rebuild a
+// cell when the server actually changed it.
 async function refreshRooms() {
   try {
     const data = await fetch("/api/rooms", { cache: "no-store" }).then((r) => r.json());
@@ -97,7 +100,10 @@ async function refreshRooms() {
     for (const rid of ROOM_IDS) {
       const doc = data.rooms[rid];
       if (doc) {
-        if (cells[rid].host.innerHTML !== doc.html) cells[rid].host.innerHTML = doc.html;
+        if (shownHtml[rid] !== doc.html) {
+          cells[rid].host.innerHTML = doc.html;
+          shownHtml[rid] = doc.html;
+        }
         roomMeta[rid] = doc.meta || [];
       }
       cells[rid].cell.style.order = roomOrder.indexOf(rid);
@@ -123,13 +129,16 @@ fetch("/api/sites")
   })
   .catch(() => {});
 
+// idempotent: re-attaches src whenever a cell was rebuilt (new blank iframe) or
+// the target changed. Compares the actual src attribute, not a tracked id.
 function mountFrames() {
   const sf = cells.desk.host.querySelector(".site-frame");
   const cap = cells.desk.host.querySelector(".site-cap");
   if (sf) {
     if (sites.sites.length) {
-      if (!sf.src) {
-        sf.src = sites.sites[siteIdx % sites.sites.length].url;
+      const want = sites.sites[siteIdx % sites.sites.length].url;
+      if (sf.getAttribute("src") !== want) {
+        sf.src = want;
         siteRotateAt = performance.now() + (sites.rotateSeconds || 45) * 1000;
       }
       if (cap) cap.textContent = sites.sites[siteIdx % sites.sites.length].label || "";
@@ -139,9 +148,13 @@ function mountFrames() {
   }
   const gf = cells.game.host.querySelector(".game-frame");
   const gid = world?.latestGameId || 0;
-  if (gf && mountedGameId !== gid) {
-    gf.src = `/games/${gid}`; // gid 0 → a valid "no game here yet" page, never blank
-    mountedGameId = gid;
+  if (gf) {
+    const want = `/games/${gid}`;
+    const cur = gf.getAttribute("src") || "";
+    if (cur !== want) {
+      gf.src = want; // gid 0 → a valid "no game here yet" page, never blank
+      mountedGameId = gid;
+    }
   }
 }
 function rotateSite(now) {

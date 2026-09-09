@@ -7,7 +7,7 @@ import { OBJECTS } from "./objects.js";
 export const RENT = 55; // charged every RENT_EVERY days
 export const RENT_EVERY = 7;
 export const RENT_GRACE_DAY = 8; // no rent before this — a new life finds its feet
-export const DAILY_REWARD = 25; // a stipend paid every morning
+export const DAILY_REWARD = 50; // a stipend paid every morning
 const BASE_UPKEEP = 2.5; // heat / water / the basics, per day
 const APPLIANCE_DRAW = 1.2; // per owned appliance, per day
 const CAT_FOOD = 2; // per day, if there's a cat
@@ -61,7 +61,7 @@ export function chargeDay(w) {
   }
 
   const wasBroke = w.finances.broke;
-  w.finances.broke = w.bank < 20;
+  w.finances.broke = w.bank < 10;
   if (w.finances.broke && !wasBroke) {
     w.finances.brokeSince = w.day;
     w.fx.push("event");
@@ -72,14 +72,16 @@ export function chargeDay(w) {
   return lines;
 }
 
-// multipliers the utility AI uses when money is tight
+// multipliers the utility AI uses when money is tight. Buying is only hard-
+// blocked when genuinely broke; otherwise the evening buy loop's own
+// affordability check (bank >= price) is the gate.
 export function economyMods(w) {
   const f = w.finances || freshFinances();
   if (!f.broke) return { work: 1, buyAllowed: true, mood: 0 };
   const days = Math.max(1, w.day - (f.brokeSince || w.day));
   return {
     work: 1.3 + Math.min(0.7, days * 0.06),
-    buyAllowed: false,
+    buyAllowed: (w.bank || 0) >= 40, // still allow a modest buy if there's a cushion
     mood: -0.02 - Math.min(0.03, days * 0.004),
   };
 }
