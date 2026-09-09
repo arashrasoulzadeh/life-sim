@@ -29,23 +29,41 @@ export const MUTE_RECT = { x: 488, y: 451, w: 20, h: 18 };
 // canvas — see index.html #room-html and src/sim/worldfiles.js. The canvas only
 // paints what needs per-frame motion: the agent, the animated window sky, the
 // memory wall, tints, the corridor, and all the UI.
+const GRID_COLS = 2;
+const GRID_ROWS = 3;
+
 export function render(ctx, w, ui) {
   ctx.clearRect(0, 0, W, H);
   ctx.imageSmoothingEnabled = false;
-  const inHall = w.agent.transit > 0;
-  if (inHall) {
-    drawCorridor(ctx, w);
+
+  if (ui.zoom) {
+    const view = ui.zoom;
+    const inHall = w.agent.transit > 0 && w.agent.room === view;
+    if (inHall) {
+      drawCorridor(ctx, w);
+    } else {
+      if (view === "window") drawSky(ctx, w);
+      if (view === "bed") drawMemoryWall(ctx, w);
+    }
+    if (inHall || (w.agent.room === view && w.agent.transit <= 0)) drawAgent(ctx, w);
+    drawNightTint(ctx, w);
+    if (w.era.tint) {
+      ctx.fillStyle = w.era.tint;
+      ctx.fillRect(0, 0, W, PLAYFIELD_H);
+    }
+    if (!inHall) drawBubble(ctx, w, 256);
   } else {
-    if (w.agent.room === "window") drawSky(ctx, w);
-    if (w.agent.room === "bed") drawMemoryWall(ctx, w);
+    drawGridAgent(ctx, w);
+    drawNightTint(ctx, w);
+    if (w.era.tint) {
+      ctx.fillStyle = w.era.tint;
+      ctx.fillRect(0, 0, W, PLAYFIELD_H);
+    }
+    drawGridLabels(ctx, w);
+    const cx = agentCellCenterX(w);
+    if (cx != null) drawBubble(ctx, w, cx);
   }
-  drawAgent(ctx, w);
-  drawNightTint(ctx, w);
-  if (w.era.tint) {
-    ctx.fillStyle = w.era.tint;
-    ctx.fillRect(0, 0, W, PLAYFIELD_H);
-  }
-  if (!inHall) drawBubble(ctx, w);
+
   drawStrip(ctx, w, ui);
   drawMute(ctx, ui.muted);
   if (ui.debug) drawDebug(ctx, w);
@@ -53,7 +71,70 @@ export function render(ctx, w, ui) {
   if (ui.showCard) drawSeedCard(ctx, w);
   if (ui.showConversation) drawConversationOverlay(ctx, w);
   if (ui.notice) drawNotice(ctx, ui.notice.text);
-  if (!w.started) drawTitle(ctx, w);
+}
+
+function cellRect(i) {
+  const cw = W / GRID_COLS;
+  const ch = PLAYFIELD_H / GRID_ROWS;
+  return { x: (i % GRID_COLS) * cw, y: Math.floor(i / GRID_COLS) * ch, w: cw, h: ch };
+}
+function agentCellIndex(w) {
+  const order = w.roomOrder || [];
+  return order.indexOf(w.agent.room);
+}
+function agentCellCenterX(w) {
+  const i = agentCellIndex(w);
+  if (i < 0) return null;
+  const r = cellRect(i);
+  return r.x + r.w / 2;
+}
+
+function drawGridAgent(ctx, w) {
+  const i = agentCellIndex(w);
+  if (i < 0) return;
+  const r = cellRect(i);
+  // highlight the agent's cell
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+
+  const ax = r.x + (w.agent.x / W) * r.w;
+  const ay = r.y + (w.agent.y / PLAYFIELD_H) * r.h;
+  const s = 0.5;
+  ctx.save();
+  ctx.translate(ax, ay);
+  ctx.scale(s, s);
+  if (w.agent.transit > 0) ctx.globalAlpha = 0.55;
+  // tiny sprite
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fillRect(-8, 1, 16, 4);
+  ctx.fillStyle = "#dfe3ea";
+  ctx.fillRect(-5, -18, 10, 14);
+  ctx.fillStyle = "#f0d9b8";
+  ctx.fillRect(-4, -27, 8, 8);
+  ctx.fillStyle = "#7a7f8a";
+  ctx.fillRect(-4, -4, 3, 5);
+  ctx.fillRect(1, -4, 3, 5);
+  ctx.restore();
+}
+
+function drawGridLabels(ctx, w) {
+  // faint cell dividers so the 2x3 grid reads even before the HTML paints
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.lineWidth = 1;
+  for (let c = 1; c < GRID_COLS; c++) {
+    ctx.beginPath();
+    ctx.moveTo((W / GRID_COLS) * c, 0);
+    ctx.lineTo((W / GRID_COLS) * c, PLAYFIELD_H);
+    ctx.stroke();
+  }
+  for (let ro = 1; ro < GRID_ROWS; ro++) {
+    ctx.beginPath();
+    ctx.moveTo(0, (PLAYFIELD_H / GRID_ROWS) * ro);
+    ctx.lineTo(W, (PLAYFIELD_H / GRID_ROWS) * ro);
+    ctx.stroke();
+  }
+  void w;
 }
 
 function drawNotice(ctx, text) {
@@ -110,21 +191,20 @@ function drawCorridor(ctx, w) {
   ctx.fillText(`— the hallway → ${w.agent.room} —`, 12, PLAYFIELD_H - 22);
 }
 
-function drawBubble(ctx, w) {
+function drawBubble(ctx, w, anchorX = 256) {
   const b = w.conversation && w.conversation.bubble;
   if (!b) return;
   const lines = wrapText(b.line || "", 32).slice(0, 3);
   const bw = 244;
-  const bh = 20 + lines.length * 12 + (b.changes && b.changes.length ? b.changes.length * 10 + 4 : 0);
-  const bx = Math.max(8, Math.min(W - bw - 8, Math.round(w.agent.x) - bw / 2));
+  const bh = 20 + lines.length * 12 + (b.changes && b.changes.length ? Math.min(4, b.changes.length) * 10 + 4 : 0);
+  const bx = Math.max(8, Math.min(W - bw - 8, Math.round(anchorX) - bw / 2));
   const by = 54;
   ctx.fillStyle = "rgba(8,10,14,0.94)";
   ctx.fillRect(bx, by, bw, bh);
   ctx.strokeStyle = b.source === "gapgpt" ? "#7ad0a0" : "#3d4452";
   ctx.strokeRect(bx, by, bw, bh);
-  // little tail toward the agent
   ctx.fillStyle = "rgba(8,10,14,0.94)";
-  const tx = Math.max(bx + 10, Math.min(bx + bw - 16, Math.round(w.agent.x) - 3));
+  const tx = Math.max(bx + 10, Math.min(bx + bw - 16, Math.round(anchorX) - 3));
   ctx.fillRect(tx, by + bh, 6, 6);
 
   ctx.fillStyle = "#5f6675";
@@ -136,8 +216,8 @@ function drawBubble(ctx, w) {
   lines.forEach((l, i) => ctx.fillText(l, bx + 8, by + 16 + i * 12));
   let yy = by + 16 + lines.length * 12 + 2;
   ctx.font = "8px ui-monospace, Menlo, monospace";
-  for (const c of b.changes || []) {
-    ctx.fillStyle = c[0] === "+" ? "#7ad0a0" : "#e0b45c";
+  for (const c of (b.changes || []).slice(0, 4)) {
+    ctx.fillStyle = c[0] === "+" || c[0] === "🎮" ? "#7ad0a0" : c[0] === "−" ? "#e0b45c" : "#8b93a3";
     ctx.fillText(c, bx + 8, yy);
     yy += 10;
   }
@@ -356,7 +436,9 @@ function drawStrip(ctx, w, ui) {
   ctx.textBaseline = "top";
   ctx.fillText(`DAY ${w.day}`, 210, top + 8);
   ctx.fillText(`${pad(hh)}:${pad(mm)} ${w.isNight ? "night" : "day"}`, 210, top + 22);
-  ctx.fillText(`${w.era.name}`, 210, top + 36);
+  ctx.fillStyle = "#e0b45c";
+  ctx.fillText(`◊ ${w.bank ?? 0}`, 210, top + 36);
+  ctx.fillStyle = "#c8ccd4";
 
   ctx.fillText("rep", 332, top + 8);
   ctx.fillStyle = repColor(w.reputation);

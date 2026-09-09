@@ -1,87 +1,130 @@
 // SimYou production server: runs the one authoritative life in the background,
-// persists it to SQLite, and streams state to browser viewers over SSE.
-// The browser is a pure viewer — no simulation, no API key.
+// persists it to SQLite (state + memories + rooms + conversations + llm_calls +
+// bank + ledger + games + impressions + digests), and streams state to browser
+// viewers over SSE. The browser is a pure viewer — no simulation, no API key.
 //
 //   node server.mjs
 //
-// env: SIMYOU_SEED, SIMYOU_PORT, SIMYOU_DB, SIMYOU_GAPGPT_KEY,
-//      SIMYOU_GAPGPT_BASE, SIMYOU_GAPGPT_MODEL, SIMYOU_DIALOGUE=on|off
+// env: SIMYOU_SEED SIMYOU_PORT SIMYOU_DB SIMYOU_SITES SIMYOU_GAPGPT_KEY
+//      SIMYOU_GAPGPT_BASE SIMYOU_GAPGPT_MODEL SIMYOU_DIALOGUE=on|off
 
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
-import { createWorld, tick, drainFx, DAY_LENGTH } from "./src/sim/world.js";
-import { buildPrompt, applyDialogue, stubDialogue } from "./src/sim/dialogue.js";
+import { createWorld, tick, drainFx, DAY_LENGTH, START_BANK } from "./src/sim/world.js";
+import { buildPrompt, applyMorning, applyEvening, stubDialogue } from "./src/sim/dialogue.js";
 import { rainIntensity } from "./src/sim/weather.js";
 import { roomDoc, initDocs } from "./src/sim/roomrender.js";
+import { ROOM_IDS } from "./src/sim/rooms.js";
 import * as Gap from "./src/engine/gapgpt.js";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.SIMYOU_PORT || process.env.PORT || 5173);
 const SEED = Number(process.env.SIMYOU_SEED || 777) >>> 0;
 const DB_PATH = process.env.SIMYOU_DB || join(ROOT, "simyou.db");
+const SITES_PATH = process.env.SIMYOU_SITES || join(ROOT, "sites.json");
 const GAP_KEY = process.env.SIMYOU_GAPGPT_KEY || "";
 const GAP_BASE = process.env.SIMYOU_GAPGPT_BASE || "https://api.gapgpt.app/v1";
 const GAP_MODEL = process.env.SIMYOU_GAPGPT_MODEL || "gpt-4o-mini";
 const DIALOGUE_ON = (process.env.SIMYOU_DIALOGUE || "on") !== "off";
 
-// 3 in-game minutes per real second (matches the old client default)
-const BASE_RATE = (3 / (24 * 60)) * DAY_LENGTH; // sim-seconds fed to tick() per real second
+const BASE_RATE = (3 / (24 * 60)) * DAY_LENGTH; // sim-seconds per real second (3 in-game min/sec)
+const REAL_SECS_PER_DAY = DAY_LENGTH / BASE_RATE; // ~480
 const FIXED_DT = 1 / 30;
 const TICK_MS = 100;
 const BROADCAST_MS = 150;
 const PERSIST_MS = 5000;
 
-const ROOM_IDS = new Set(["window", "kitchen", "desk", "couch", "bed"]);
+const DB_SOFT_CAP = 900 * 1024 * 1024;
+const LLM_BLOB_CAP = 8 * 1024;
+const MAX_GAMES = 10;
+const VIEWER_DAY_SECONDS_CAP = REAL_SECS_PER_DAY; // one in-game day of credited watching per viewer
+
+// ---------- sites.json ----------
+let SITES = { rotateSeconds: 45, sites: [] };
+try {
+  if (existsSync(SITES_PATH)) SITES = JSON.parse(readFileSync(SITES_PATH, "utf8"));
+} catch (e) {
+  console.error("[simyou] sites.json:", e.message);
+}
+const siteById = new Map(SITES.sites.map((s) => [s.id, s]));
 
 // ---------- database ----------
 const db = new DatabaseSync(DB_PATH);
 db.exec(`
   PRAGMA journal_mode = WAL;
+  PRAGMA auto_vacuum = INCREMENTAL;
   CREATE TABLE IF NOT EXISTS state (seed TEXT PRIMARY KEY, snapshot TEXT NOT NULL, updated TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS memories (
     seed TEXT, id INTEGER, kind TEXT, txt TEXT, trait TEXT, dir INTEGER,
-    mag REAL, weight REAL, born_day INTEGER, updated TEXT, PRIMARY KEY (seed, id));
-  CREATE TABLE IF NOT EXISTS rooms (
-    seed TEXT, room TEXT, objects TEXT, html TEXT, updated TEXT, PRIMARY KEY (seed, room));
-  CREATE TABLE IF NOT EXISTS conversations (
-    seed TEXT, day INTEGER, phase TEXT, source TEXT, line TEXT, changes TEXT, created_at TEXT);
-  CREATE TABLE IF NOT EXISTS llm_calls (
-    seed TEXT, ts TEXT, phase TEXT, day INTEGER, status INTEGER,
-    request TEXT, content TEXT, parsed TEXT, error TEXT);
+    mag REAL, weight REAL, born_day INTEGER, archived INTEGER DEFAULT 0, updated TEXT,
+    PRIMARY KEY (seed, id));
+  CREATE TABLE IF NOT EXISTS memory_digest (seed TEXT, month INTEGER, summary TEXT, cnt INTEGER, created_at TEXT, PRIMARY KEY (seed, month));
+  CREATE TABLE IF NOT EXISTS life_summary (seed TEXT PRIMARY KEY, txt TEXT, updated_day INTEGER);
+  CREATE TABLE IF NOT EXISTS rooms (seed TEXT, room TEXT, objects TEXT, html TEXT, updated TEXT, PRIMARY KEY (seed, room));
+  CREATE TABLE IF NOT EXISTS conversations (seed TEXT, day INTEGER, phase TEXT, source TEXT, line TEXT, changes TEXT, created_at TEXT);
+  CREATE TABLE IF NOT EXISTS llm_calls (seed TEXT, ts TEXT, phase TEXT, day INTEGER, status INTEGER, request TEXT, content TEXT, parsed TEXT, error TEXT);
+  CREATE TABLE IF NOT EXISTS bank (seed TEXT PRIMARY KEY, balance REAL, updated TEXT);
+  CREATE TABLE IF NOT EXISTS ledger (seed TEXT, ts TEXT, kind TEXT, amount REAL, note TEXT);
+  CREATE TABLE IF NOT EXISTS games (seed TEXT, id INTEGER, title TEXT, html TEXT, created_day INTEGER, plays INTEGER DEFAULT 0, bytes INTEGER, PRIMARY KEY (seed, id));
+  CREATE TABLE IF NOT EXISTS impressions (seed TEXT, day INTEGER, viewer TEXT, site TEXT, seconds REAL, credited REAL, PRIMARY KEY (seed, day, viewer, site));
 `);
 
-const q = {
+const Q = {
+  loadState: db.prepare(`SELECT snapshot FROM state WHERE seed=?`),
   saveState: db.prepare(
-    `INSERT INTO state (seed, snapshot, updated) VALUES (?, ?, ?)
-     ON CONFLICT(seed) DO UPDATE SET snapshot = excluded.snapshot, updated = excluded.updated`,
+    `INSERT INTO state (seed,snapshot,updated) VALUES (?,?,?) ON CONFLICT(seed) DO UPDATE SET snapshot=excluded.snapshot, updated=excluded.updated`,
   ),
-  loadState: db.prepare(`SELECT snapshot FROM state WHERE seed = ?`),
-  wipeMem: db.prepare(`DELETE FROM memories WHERE seed = ?`),
-  insMem: db.prepare(
-    `INSERT INTO memories (seed, id, kind, txt, trait, dir, mag, weight, born_day, updated)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  memUpsert: db.prepare(
+    `INSERT INTO memories (seed,id,kind,txt,trait,dir,mag,weight,born_day,archived,updated)
+     VALUES (?,?,?,?,?,?,?,?,?,0,?)
+     ON CONFLICT(seed,id) DO UPDATE SET weight=excluded.weight, txt=excluded.txt, updated=excluded.updated`,
   ),
-  saveRoom: db.prepare(
-    `INSERT INTO rooms (seed, room, objects, html, updated) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(seed, room) DO UPDATE SET objects = excluded.objects, html = excluded.html, updated = excluded.updated`,
+  memDormant: db.prepare(
+    `SELECT id,txt,trait,born_day FROM memories WHERE seed=? AND archived=0 AND weight<0.15 AND (?-born_day)>30`,
   ),
-  getRoom: db.prepare(`SELECT objects, html, updated FROM rooms WHERE seed = ? AND room = ?`),
-  insConv: db.prepare(
-    `INSERT INTO conversations (seed, day, phase, source, line, changes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  memArchive: db.prepare(`UPDATE memories SET archived=1 WHERE seed=? AND id=?`),
+  memTopActive: db.prepare(`SELECT txt FROM memories WHERE seed=? AND archived=0 ORDER BY weight DESC LIMIT 12`),
+  memCount: db.prepare(`SELECT COUNT(*) c FROM memories WHERE seed=?`),
+  digestUpsert: db.prepare(
+    `INSERT INTO memory_digest (seed,month,summary,cnt,created_at) VALUES (?,?,?,?,?)
+     ON CONFLICT(seed,month) DO UPDATE SET summary=excluded.summary, cnt=excluded.cnt`,
   ),
-  listConv: db.prepare(
-    `SELECT day, phase, source, line, changes, created_at FROM conversations WHERE seed = ? ORDER BY rowid DESC LIMIT 60`,
+  digestRecent: db.prepare(`SELECT month,summary FROM memory_digest WHERE seed=? ORDER BY month DESC LIMIT 3`),
+  lifeGet: db.prepare(`SELECT txt,updated_day FROM life_summary WHERE seed=?`),
+  lifeSet: db.prepare(
+    `INSERT INTO life_summary (seed,txt,updated_day) VALUES (?,?,?) ON CONFLICT(seed) DO UPDATE SET txt=excluded.txt, updated_day=excluded.updated_day`,
   ),
-  listMem: db.prepare(`SELECT id, kind, txt, trait, dir, weight, born_day FROM memories WHERE seed = ? ORDER BY weight DESC`),
-  insLlm: db.prepare(
-    `INSERT INTO llm_calls (seed, ts, phase, day, status, request, content, parsed, error)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  roomSave: db.prepare(
+    `INSERT INTO rooms (seed,room,objects,html,updated) VALUES (?,?,?,?,?) ON CONFLICT(seed,room) DO UPDATE SET objects=excluded.objects, html=excluded.html, updated=excluded.updated`,
   ),
+  roomGet: db.prepare(`SELECT objects,html,updated FROM rooms WHERE seed=? AND room=?`),
+  convIns: db.prepare(`INSERT INTO conversations (seed,day,phase,source,line,changes,created_at) VALUES (?,?,?,?,?,?,?)`),
+  convList: db.prepare(`SELECT day,phase,source,line,changes,created_at FROM conversations WHERE seed=? ORDER BY rowid DESC LIMIT 60`),
+  llmIns: db.prepare(`INSERT INTO llm_calls (seed,ts,phase,day,status,request,content,parsed,error) VALUES (?,?,?,?,?,?,?,?,?)`),
+  llmTrim: db.prepare(`DELETE FROM llm_calls WHERE seed=? AND rowid NOT IN (SELECT rowid FROM llm_calls WHERE seed=? ORDER BY rowid DESC LIMIT 2000)`),
+  convTrim: db.prepare(`DELETE FROM conversations WHERE seed=? AND day < ?`),
+  bankGet: db.prepare(`SELECT balance FROM bank WHERE seed=?`),
+  bankSet: db.prepare(`INSERT INTO bank (seed,balance,updated) VALUES (?,?,?) ON CONFLICT(seed) DO UPDATE SET balance=excluded.balance, updated=excluded.updated`),
+  ledgerIns: db.prepare(`INSERT INTO ledger (seed,ts,kind,amount,note) VALUES (?,?,?,?,?)`),
+  ledgerTail: db.prepare(`SELECT ts,kind,amount,note FROM ledger WHERE seed=? ORDER BY rowid DESC LIMIT 40`),
+  gameIns: db.prepare(`INSERT INTO games (seed,id,title,html,created_day,plays,bytes) VALUES (?,?,?,?,?,0,?)`),
+  gamePlays: db.prepare(`UPDATE games SET plays=plays+1 WHERE seed=? AND id=?`),
+  gameList: db.prepare(`SELECT id,title,created_day,plays,bytes FROM games WHERE seed=? ORDER BY id DESC`),
+  gameHtml: db.prepare(`SELECT html FROM games WHERE seed=? AND id=?`),
+  gamePrune: db.prepare(`DELETE FROM games WHERE seed=? AND id NOT IN (SELECT id FROM games WHERE seed=? ORDER BY id DESC LIMIT ${MAX_GAMES})`),
+  imprGet: db.prepare(`SELECT seconds,credited FROM impressions WHERE seed=? AND day=? AND viewer=? AND site=?`),
+  imprDaySum: db.prepare(`SELECT COALESCE(SUM(credited),0) s FROM impressions WHERE seed=? AND day=? AND viewer=?`),
+  imprUpsert: db.prepare(
+    `INSERT INTO impressions (seed,day,viewer,site,seconds,credited) VALUES (?,?,?,?,?,?)
+     ON CONFLICT(seed,day,viewer,site) DO UPDATE SET seconds=seconds+excluded.seconds, credited=credited+excluded.credited`,
+  ),
+  imprSiteYesterday: db.prepare(`SELECT COALESCE(SUM(seconds),0) s FROM impressions WHERE seed=? AND day=? AND site=?`),
 };
 
 // ---------- world load / restore ----------
@@ -98,12 +141,15 @@ function restore(seed, json) {
   }
   w.rng.s = (snap.rngState ?? w.rng.s) >>> 0;
   w.started = true;
-  if (!w.roomDocs || Object.keys(w.roomDocs).length === 0) initDocs(w);
+  for (const r of ROOM_IDS) if (!w.rooms[r]) w.rooms[r] = [];
+  if (!Array.isArray(w.roomOrder) || w.roomOrder.length !== ROOM_IDS.length) w.roomOrder = [...ROOM_IDS];
+  if (!w.memory.overflow) w.memory.overflow = [];
+  if (!w.roomDocs || Object.keys(w.roomDocs).length < ROOM_IDS.length) initDocs(w);
   return w;
 }
 
 let world;
-const existing = q.loadState.get(String(SEED));
+const existing = Q.loadState.get(String(SEED));
 if (existing) {
   world = restore(SEED, existing.snapshot);
   console.log(`[simyou] resumed seed ${SEED} at day ${world.day}`);
@@ -113,8 +159,16 @@ if (existing) {
   initDocs(world);
   console.log(`[simyou] new life, seed ${SEED}`);
 }
+
+// bank: DB is a mirror; the snapshot's value wins on resume, else seed money
+const bankRow = Q.bankGet.get(String(SEED));
+world.bank = typeof world.bank === "number" ? world.bank : bankRow ? bankRow.balance : START_BANK;
+world.roomsVersion = world.roomsVersion || 1;
+world.latestGameId = world.latestGameId || 0;
+
 persistRooms();
 persistMemories();
+persistBank("init", 0, "resume");
 
 // ---------- gapgpt ----------
 Gap.configure({
@@ -123,19 +177,20 @@ Gap.configure({
   model: GAP_MODEL,
   onLog: (rec) => {
     try {
-      q.insLlm.run(
+      const cap = (s) => (typeof s === "string" && s.length > LLM_BLOB_CAP ? s.slice(0, LLM_BLOB_CAP) + "…" : s);
+      Q.llmIns.run(
         String(SEED),
         new Date().toISOString(),
         rec.meta?.phase ?? null,
         rec.meta?.day ?? null,
         rec.status ?? null,
-        JSON.stringify(rec.request ?? null),
-        rec.content ?? null,
-        rec.parsed ? JSON.stringify(rec.parsed) : null,
+        cap(JSON.stringify(rec.request ?? null)),
+        cap(rec.content ?? null),
+        cap(rec.parsed ? JSON.stringify(rec.parsed) : null),
         rec.error ?? null,
       );
     } catch (e) {
-      console.error("[simyou] llm log failed:", e.message);
+      console.error("[simyou] llm log:", e.message);
     }
   },
 });
@@ -146,61 +201,120 @@ async function runDialogue(phase) {
   if (dialogueBusy) return;
   dialogueBusy = true;
   try {
+    const ctx = buildCtx();
     let result;
     if (DIALOGUE_ON && GAP_KEY) {
-      const { system, user } = buildPrompt(world, phase);
+      const { system, user } = buildPrompt(world, phase, ctx);
       const resp = await Gap.chatJSON(system, user, { meta: { phase, day: world.day, seed: SEED } });
-      result = applyDialogue(world, resp);
+      result = phase === "evening" ? applyEvening(world, resp) : applyMorning(world, resp);
       result.source = "gapgpt";
     } else {
       result = stubDialogue(world, phase, world.rng);
       result.source = DIALOGUE_ON ? "offline" : "off";
     }
-    recordConversation(phase, result);
+    finishDialogue(phase, result);
   } catch (e) {
+    // never stop the day — offline fallback, "no money" style line
     const fb = stubDialogue(world, phase, world.rng);
-    recordConversation(phase, { line: `gapgpt failed (${e.message}) — offline voice`, changes: fb.changes, source: "error" });
+    finishDialogue(phase, { ...fb, source: "error", line: fb.line || "no money." });
+    console.error("[simyou] dialogue:", e.message);
   } finally {
     dialogueBusy = false;
   }
 }
-function recordConversation(phase, r) {
-  const entry = { phase, day: world.day, line: r.line, changes: r.changes || [], source: r.source, at: Date.now() };
+
+function finishDialogue(phase, r) {
+  if (r.spent) world.expensesToday += r.spent;
+  if (r.earned) world.incomeToday += r.earned;
+  if (r.spent) ledger("spend", -r.spent, `${phase} purchases`);
+  if (r.earned) ledger("sale", r.earned, `${phase} sales`);
+  if (r.game) commitGame(r.game);
+
+  const entry = { phase, day: world.day, line: r.line || "", changes: r.changes || [], source: r.source, at: Date.now() };
   world.conversation.log.push(entry);
   while (world.conversation.log.length > 60) world.conversation.log.shift();
   world.conversation.bubble = { ...entry, ttl: 22 };
+
   regenRooms();
   persistRooms();
   persistMemories();
+  persistBank("dialogue", 0, phase);
   try {
-    q.insConv.run(String(SEED), world.day, phase, r.source, r.line || "", JSON.stringify(r.changes || []), new Date().toISOString());
+    Q.convIns.run(String(SEED), world.day, phase, r.source, entry.line, JSON.stringify(entry.changes), new Date().toISOString());
   } catch (e) {
-    console.error("[simyou] conversation persist:", e.message);
+    console.error("[simyou] conv persist:", e.message);
   }
 }
 
+function buildCtx() {
+  const digests = Q.digestRecent.all(String(SEED)).map((d) => ({ month: d.month, summary: d.summary }));
+  const life = Q.lifeGet.get(String(SEED));
+  const sites = SITES.sites.map((s) => ({
+    id: s.id,
+    label: s.label || s.id,
+    ratePerVisitorDay: s.ratePerVisitorDay || 60,
+    secondsYesterday: Q.imprSiteYesterday.get(String(SEED), world.day - 1, s.id)?.s || 0,
+  }));
+  const gamesList = Q.gameList.all(String(SEED)).map((g) => ({ title: g.title, createdDay: g.created_day, plays: g.plays }));
+  return { digests, lifeSummary: life?.txt || "", sites, gamesList };
+}
+
+// ---------- games ----------
+function commitGame(g) {
+  const id = ++world.latestGameId;
+  const bytes = Buffer.byteLength(g.html, "utf8");
+  try {
+    Q.gameIns.run(String(SEED), id, g.title, g.html, world.day, bytes);
+    Q.gamePrune.run(String(SEED), String(SEED));
+    world.gamesCount = Q.gameList.all(String(SEED)).length;
+    world.fx.push("memory");
+  } catch (e) {
+    console.error("[simyou] game persist:", e.message);
+  }
+}
+
+// ---------- rooms ----------
 function regenRooms() {
-  for (const rid of Object.keys(world.rooms)) {
+  let bumped = false;
+  for (const rid of ROOM_IDS) {
     const cur = world.roomDocs[rid];
-    if (!cur || (cur.objects || []).join(",") !== world.rooms[rid].join(",")) {
-      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid]);
+    if (!cur || (cur.objects || []).join(",") !== (world.rooms[rid] || []).join(",")) {
+      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || []);
+      bumped = true;
     }
+  }
+  if (bumped) world.roomsVersion++;
+}
+
+// ---------- bank / ledger ----------
+function ledger(kind, amount, note) {
+  try {
+    Q.ledgerIns.run(String(SEED), new Date().toISOString(), kind, Math.round(amount * 100) / 100, note || "");
+  } catch (e) {
+    console.error("[simyou] ledger:", e.message);
+  }
+}
+function persistBank() {
+  try {
+    Q.bankSet.run(String(SEED), Math.round(world.bank * 100) / 100, new Date().toISOString());
+  } catch (e) {
+    console.error("[simyou] bank persist:", e.message);
   }
 }
 
 // ---------- persistence ----------
 function persistState() {
   try {
-    q.saveState.run(String(SEED), snapshotJSON(world), new Date().toISOString());
+    Q.saveState.run(String(SEED), snapshotJSON(world), new Date().toISOString());
   } catch (e) {
     console.error("[simyou] state persist:", e.message);
   }
 }
 function persistRooms() {
   try {
-    for (const rid of Object.keys(world.roomDocs)) {
+    for (const rid of ROOM_IDS) {
       const d = world.roomDocs[rid];
-      q.saveRoom.run(String(SEED), rid, JSON.stringify(d.objects), d.html, d.updated);
+      if (d) Q.roomSave.run(String(SEED), rid, JSON.stringify(d.objects), d.html, d.updated);
     }
   } catch (e) {
     console.error("[simyou] rooms persist:", e.message);
@@ -208,13 +322,83 @@ function persistRooms() {
 }
 function persistMemories() {
   try {
-    q.wipeMem.run(String(SEED));
     const now = new Date().toISOString();
     for (const m of world.memory.slots) {
-      q.insMem.run(String(SEED), m.id, m.kind, m.text, m.trait, m.dir, m.mag, m.weight, m.bornDay, now);
+      Q.memUpsert.run(String(SEED), m.id, m.kind, m.text, m.trait, m.dir, m.mag, m.weight, m.bornDay, now);
     }
+    for (const m of world.memory.overflow || []) {
+      Q.memUpsert.run(String(SEED), m.id, m.kind, m.text, m.trait, m.dir, m.mag, m.weight, m.bornDay, now);
+    }
+    world.memory.overflow = [];
+    world.memory.total = Q.memCount.get(String(SEED))?.c ?? world.memory.total;
   } catch (e) {
     console.error("[simyou] memories persist:", e.message);
+  }
+}
+
+// ---------- daily maintenance ----------
+function onNewDayServer() {
+  persistMemories();
+  // consolidate dormant, old memories into a monthly digest (kept, not deleted)
+  try {
+    const rows = Q.memDormant.all(String(SEED), world.day);
+    const byMonth = new Map();
+    for (const r of rows) {
+      const mo = Math.floor(r.born_day / 30);
+      if (!byMonth.has(mo)) byMonth.set(mo, []);
+      byMonth.get(mo).push(r);
+    }
+    for (const [mo, list] of byMonth) {
+      const traits = {};
+      for (const r of list) traits[r.trait] = (traits[r.trait] || 0) + 1;
+      const topTrait = Object.entries(traits).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+      const notable = list.slice(0, 3).map((r) => r.txt).join(" / ");
+      const summary = `mostly ${topTrait}. ${notable}`.slice(0, 300);
+      Q.digestUpsert.run(String(SEED), mo, summary, list.length, new Date().toISOString());
+      for (const r of list) Q.memArchive.run(String(SEED), r.id);
+    }
+  } catch (e) {
+    console.error("[simyou] consolidate:", e.message);
+  }
+  // life summary every 10 in-game days (template — no API cost)
+  const life = Q.lifeGet.get(String(SEED));
+  if (!life || world.day - (life.updated_day || 0) >= 10) {
+    try {
+      const top = Q.memTopActive.all(String(SEED)).map((r) => r.txt);
+      const dg = Q.digestRecent.all(String(SEED)).map((r) => r.summary);
+      const p = world.agent.personality;
+      const txt =
+        `Day ${world.day}, ${world.era.name}. ` +
+        `Leaning ${dominant(p)}. Bank ${Math.round(world.bank)}c, ${world.gamesCount || 0} games made. ` +
+        (top.length ? `Holds onto: ${top.slice(0, 4).join("; ")}. ` : "") +
+        (dg.length ? `Earlier: ${dg[0]}.` : "");
+      Q.lifeSet.run(String(SEED), txt.slice(0, 1200), world.day);
+    } catch (e) {
+      console.error("[simyou] life summary:", e.message);
+    }
+  }
+}
+function dominant(p) {
+  return Object.entries(p).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+let guardTicks = 0;
+function sizeGuard() {
+  try {
+    const pageCount = db.prepare("PRAGMA page_count").get();
+    const pageSize = db.prepare("PRAGMA page_size").get();
+    const bytes = (pageCount.page_count || 0) * (pageSize.page_size || 0);
+    if (bytes > DB_SOFT_CAP) {
+      console.log(`[simyou] db ${(bytes / 1e6) | 0}MB > cap — trimming`);
+      Q.llmTrim.run(String(SEED), String(SEED));
+      Q.convTrim.run(String(SEED), world.day - 180);
+      Q.gamePrune.run(String(SEED), String(SEED));
+      db.exec("PRAGMA incremental_vacuum; VACUUM;");
+    } else {
+      db.exec("PRAGMA incremental_vacuum(200);");
+    }
+  } catch (e) {
+    console.error("[simyou] size guard:", e.message);
   }
 }
 
@@ -236,11 +420,24 @@ setInterval(() => {
     acc -= FIXED_DT;
   }
 
+  // agent playing a game
+  if (world.agent.room === "game" && world.latestGameId && world.agent.transit <= 0 && !world.agent.moving) {
+    world._playAcc = (world._playAcc || 0) + dtReal;
+    if (world._playAcc > 8) {
+      world._playAcc = 0;
+      try {
+        Q.gamePlays.run(String(SEED), world.latestGameId);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   if (world.day !== prevDay) {
     prevDay = world.day;
     regenRooms();
     persistRooms();
-    persistMemories();
+    onNewDayServer();
   }
 
   if (world.dialogueRequest && !dialogueBusy) {
@@ -252,9 +449,14 @@ setInterval(() => {
   const fx = drainFx(world);
   if (fx) for (const t of fx) fxTail.push({ n: ++fxSeq, t });
   while (fxTail.length > 24) fxTail.shift();
+
+  if (++guardTicks % 3000 === 0) sizeGuard();
 }, TICK_MS);
 
-setInterval(persistState, PERSIST_MS);
+setInterval(() => {
+  persistState();
+  persistBank();
+}, PERSIST_MS);
 
 // ---------- viewer snapshot + SSE ----------
 let fxSeq = 0;
@@ -270,21 +472,28 @@ function viewSnapshot() {
     tokens: world.tokens,
     reputation: world.reputation,
     requests: world.requests,
+    bank: Math.round(world.bank),
+    incomeYesterday: Math.round(world.incomeYesterday || 0),
+    expensesYesterday: Math.round(world.expensesYesterday || 0),
+    incomeToday: Math.round(world.incomeToday || 0),
+    roomOrder: world.roomOrder,
+    roomsVersion: world.roomsVersion,
+    memoryTotal: world.memory.total || world.memory.slots.length,
+    gamesCount: world.gamesCount || 0,
+    latestGameId: world.latestGameId || 0,
     agent: world.agent,
     mood: world.mood,
     weather: world.weather,
     windowEvent: world.windowEvent,
     era: world.era,
-    memory: world.memory,
+    memory: { slots: world.memory.slots, latestText: world.memory.latestText },
     conversation: { bubble: world.conversation.bubble, log: world.conversation.log.slice(-10) },
-    room: world.roomDocs[world.agent.room] || null,
     gapgpt: !!(DIALOGUE_ON && GAP_KEY),
     fx: fxTail,
   });
 }
-
 function broadcast() {
-  if (clients.size === 0) return;
+  if (!clients.size) return;
   const payload = `data: ${viewSnapshot()}\n\n`;
   for (const res of clients) {
     try {
@@ -308,11 +517,26 @@ const MIME = {
   ".png": "image/png",
   ".woff2": "font/woff2",
 };
-const BLOCKED = /(^|\/)(config\.js|config\.local\.js|\.env|server\.mjs|server\.py|.*\.db(-.*)?|llm\.log)$/;
+const BLOCKED = /(^|\/)(config\.js|config\.local\.js|sites\.json|\.env|server\.mjs|.*\.db(-.*)?|llm\.log)$/;
 
 function sendJSON(res, s) {
   res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-cache" });
   res.end(s);
+}
+function readBody(req) {
+  return new Promise((resolve) => {
+    let b = "";
+    req.on("data", (c) => {
+      b += c;
+      if (b.length > 65536) req.destroy();
+    });
+    req.on("end", () => resolve(b));
+    req.on("error", () => resolve(""));
+  });
+}
+function viewerHash(req, id) {
+  const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+  return createHash("sha1").update(ip + "|" + String(id || "")).digest("hex").slice(0, 16);
 }
 
 const server = createServer(async (req, res) => {
@@ -349,23 +573,90 @@ const server = createServer(async (req, res) => {
   }
 
   if (path === "/state") return sendJSON(res, viewSnapshot());
-  if (path === "/api/conversations") {
-    const rows = q.listConv.all(String(SEED)).map((r) => ({ ...r, changes: JSON.parse(r.changes || "[]") }));
-    return sendJSON(res, JSON.stringify(rows));
-  }
-  if (path === "/api/memories") return sendJSON(res, JSON.stringify(q.listMem.all(String(SEED))));
 
-  const rm = path.match(/^\/worlds\/(\d{1,10})\/([a-z]+)\.json$/);
-  if (rm && ROOM_IDS.has(rm[2])) {
-    const row = q.getRoom.get(rm[1], rm[2]);
+  if (path === "/api/sites") {
+    return sendJSON(
+      res,
+      JSON.stringify({
+        rotateSeconds: SITES.rotateSeconds || 45,
+        sites: SITES.sites.map((s) => ({ id: s.id, label: s.label || s.id, url: s.url })),
+      }),
+    );
+  }
+
+  if (path === "/api/rooms") {
+    const out = {};
+    for (const rid of ROOM_IDS) {
+      const d = world.roomDocs[rid];
+      if (d) out[rid] = { objects: d.objects, html: d.html, updated: d.updated };
+    }
+    return sendJSON(res, JSON.stringify({ version: world.roomsVersion, order: world.roomOrder, rooms: out }));
+  }
+
+  if (path === "/api/bank") {
+    return sendJSON(
+      res,
+      JSON.stringify({
+        balance: Math.round(world.bank),
+        incomeToday: Math.round(world.incomeToday || 0),
+        incomeYesterday: Math.round(world.incomeYesterday || 0),
+        expensesYesterday: Math.round(world.expensesYesterday || 0),
+      }),
+    );
+  }
+  if (path === "/api/ledger") return sendJSON(res, JSON.stringify(Q.ledgerTail.all(String(SEED))));
+  if (path === "/api/conversations") {
+    return sendJSON(
+      res,
+      JSON.stringify(Q.convList.all(String(SEED)).map((r) => ({ ...r, changes: safeParse(r.changes, []) }))),
+    );
+  }
+  if (path === "/api/memories") {
+    return sendJSON(
+      res,
+      JSON.stringify(
+        db.prepare(`SELECT id,kind,txt,trait,dir,weight,born_day,archived FROM memories WHERE seed=? ORDER BY weight DESC LIMIT 200`).all(String(SEED)),
+      ),
+    );
+  }
+  if (path === "/api/games") return sendJSON(res, JSON.stringify(Q.gameList.all(String(SEED)).map((g) => ({ id: g.id, title: g.title, createdDay: g.created_day, plays: g.plays }))));
+
+  const gm = path.match(/^\/games\/(\d{1,9})$/);
+  if (gm) {
+    const row = Q.gameHtml.get(String(SEED), Number(gm[1]));
     if (!row) {
       res.writeHead(404);
       return res.end();
     }
-    return sendJSON(
-      res,
-      JSON.stringify({ room: rm[2], seed: rm[1], objects: JSON.parse(row.objects), html: row.html, updated: row.updated }),
-    );
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-cache",
+      "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;",
+    });
+    return res.end(row.html);
+  }
+
+  if (path === "/api/impression" && req.method === "POST") {
+    const body = safeParse(await readBody(req), {});
+    const site = siteById.get(String(body.site || ""));
+    const seconds = Math.max(0, Math.min(30, Number(body.seconds) || 0));
+    if (!site || seconds <= 0) {
+      res.writeHead(204);
+      return res.end();
+    }
+    const viewer = viewerHash(req, body.viewer);
+    const daySum = Q.imprDaySum.get(String(SEED), world.day, viewer)?.s || 0;
+    const room = Math.max(0, VIEWER_DAY_SECONDS_CAP - daySum);
+    const toCredit = Math.min(seconds, room);
+    const coins = (site.ratePerVisitorDay || 60) * (toCredit / REAL_SECS_PER_DAY);
+    Q.imprUpsert.run(String(SEED), world.day, viewer, site.id, seconds, toCredit);
+    if (coins > 0) {
+      world.bank += coins;
+      world.incomeToday += coins;
+      if (Math.random() < 0.04) ledger("view", coins, `${site.id} +${coins.toFixed(1)}`); // sample, not every beat
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ ok: true, bank: Math.round(world.bank) }));
   }
 
   // static
@@ -381,12 +672,9 @@ const server = createServer(async (req, res) => {
     return res.end("not found");
   }
   try {
-    const body = await readFile(file);
-    res.writeHead(200, {
-      "Content-Type": MIME[extname(file)] || "application/octet-stream",
-      "Cache-Control": "no-cache",
-    });
-    res.end(body);
+    const buf = await readFile(file);
+    res.writeHead(200, { "Content-Type": MIME[extname(file)] || "application/octet-stream", "Cache-Control": "no-cache" });
+    res.end(buf);
   } catch {
     res.writeHead(500);
     res.end();
@@ -394,13 +682,24 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[simyou] http://localhost:${PORT}  seed ${SEED}  db ${DB_PATH}  gapgpt ${GAP_KEY ? GAP_MODEL : "off (offline voice)"}`);
+  console.log(
+    `[simyou] http://localhost:${PORT}  seed ${SEED}  db ${DB_PATH}  sites ${SITES.sites.length}  gapgpt ${GAP_KEY ? GAP_MODEL : "off"}`,
+  );
 });
+
+function safeParse(s, fallback) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return fallback;
+  }
+}
 
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
     console.log(`[simyou] ${sig} — persisting`);
     persistState();
+    persistBank();
     persistMemories();
     persistRooms();
     try {

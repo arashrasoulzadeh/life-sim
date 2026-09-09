@@ -1,0 +1,8 @@
+{
+  "_note": "Copy to sites.json. URLs must allow iframe embedding (no X-Frame-Options: DENY / restrictive frame-ancestors). Your own pages are safest. ratePerVisitorDay is coins earned per in-game day per steady viewer watching that site on the desk monitor.",
+  "rotateSeconds": 45,
+  "sites": [
+    { "id": "home", "url": "https://your-site.example/embed", "label": "your site", "ratePerVisitorDay": 60 },
+    { "id": "blog", "url": "https://blog.your-site.example", "label": "blog", "ratePerVisitorDay": 40 }
+  ]
+}

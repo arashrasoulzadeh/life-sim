@@ -30,6 +30,12 @@ Set `SIMYOU_SEED` to the life you want (pick once, never change it),
 `SIMYOU_DB=/var/lib/simyou/simyou.db`, and paste your GapGPT key into
 `SIMYOU_GAPGPT_KEY` (leave blank for the offline voice).
 
+Then create `sites.json` (from `sites.example.json`) — the pages shown on the
+desk monitor. **URLs must allow iframe embedding** (your own pages are safest).
+Viewers watching the monitor earn the life coins (`ratePerVisitorDay` each), which
+it spends on room objects and on commissioning games. Without `sites.json` it
+simply never earns and buys nothing.
+
 ## 3. systemd
 
 ```bash
@@ -61,7 +67,9 @@ enable sound.
 |---|---|
 | watch the logs | `journalctl -u simyou -f` |
 | inspect the life | `sqlite3 /var/lib/simyou/simyou.db 'select * from conversations order by rowid desc limit 20;'` |
-| the memories | `sqlite3 /var/lib/simyou/simyou.db 'select txt,trait,dir,weight from memories order by weight desc;'` |
+| the memories (infinite) | `sqlite3 /var/lib/simyou/simyou.db 'select txt,trait,dir,weight,archived from memories order by weight desc limit 40;'` |
+| the money | `sqlite3 /var/lib/simyou/simyou.db 'select balance from bank; select ts,kind,amount,note from ledger order by rowid desc limit 20;'` |
+| the games it wrote | `sqlite3 /var/lib/simyou/simyou.db 'select id,title,created_day,plays,bytes from games;'` |
 | every LLM call | `sqlite3 /var/lib/simyou/simyou.db 'select ts,phase,status,content from llm_calls order by rowid desc limit 20;'` |
 | pause the API spend | set `SIMYOU_DIALOGUE=off` in `.env`, `systemctl restart simyou` (offline voice takes over) |
 | start the life over | stop the service, `delete from state where seed='<seed>'` (or `rm` the db), start again |

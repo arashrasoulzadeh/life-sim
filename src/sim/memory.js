@@ -5,7 +5,11 @@
 // are overwritten and their nudge partly relaxes back. This is what makes a life
 // on day 40 diverge from the same life on day 4.
 
-export const MEMORY_SLOTS = 12;
+// Working-set size held in RAM / the state snapshot. Memory itself is infinite —
+// everything ever written lives in the SQLite `memories` table (server.mjs).
+// When `slots` overflows, the faintest is dropped from the working set but its
+// personality nudge is permanent and the row is kept in the DB.
+export const MEMORY_SLOTS = 48;
 export const TRAITS = ["diligence", "sociability", "curiosity", "restlessness"];
 
 const TRAIT_MIN = 0.05;
@@ -13,10 +17,12 @@ const TRAIT_MAX = 1.2;
 
 export function freshMemory() {
   return {
-    slots: [], // { id, kind, text, trait, dir, mag, weight, bornDay }
+    slots: [], // working set — { id, kind, text, trait, dir, mag, weight, bornDay }
+    overflow: [], // dropped from the working set this tick; server flushes to SQLite
     nextId: 1,
     lastWrittenDay: 0,
     latestText: "",
+    total: 0, // lifetime count (for the viewer)
   };
 }
 
@@ -160,32 +166,32 @@ export function writeMemory(mem, personality, rng, day) {
   };
   applyDrift(personality, record.trait, record.dir * record.mag);
 
-  if (mem.slots.length >= MEMORY_SLOTS) {
-    // forget the faintest memory, relaxing half its nudge back
+  mem.slots.push(record);
+  mem.overflow = mem.overflow || [];
+  while (mem.slots.length > MEMORY_SLOTS) {
+    // drop the faintest from the working set — the nudge stays, the DB keeps the row
     let faint = 0;
     for (let i = 1; i < mem.slots.length; i++) {
       if (mem.slots[i].weight < mem.slots[faint].weight) faint = i;
     }
-    const dropped = mem.slots.splice(faint, 1)[0];
-    applyDrift(personality, dropped.trait, -dropped.dir * dropped.mag * 0.5);
+    mem.overflow.push(mem.slots.splice(faint, 1)[0]);
   }
 
-  mem.slots.push(record);
   mem.latestText = `wrote: ${seed.text}`;
   mem.lastWrittenDay = day.day;
   return record;
 }
 
-// Called once per in-game day. Memories fade; faded ones are forgotten.
-export function ageMemory(mem, personality) {
-  for (const s of mem.slots) s.weight -= 0.045;
-  const kept = [];
-  for (const s of mem.slots) {
-    if (s.weight <= 0.15) {
-      applyDrift(personality, s.trait, -s.dir * s.mag * 0.5);
-    } else {
-      kept.push(s);
+// Called once per in-game day. Memories fade toward dormant but are never
+// deleted — the server consolidates dormant rows into digests.
+export function ageMemory(mem) {
+  for (const s of mem.slots) s.weight = Math.max(0, s.weight - 0.045);
+  mem.overflow = mem.overflow || [];
+  while (mem.slots.length > MEMORY_SLOTS) {
+    let faint = 0;
+    for (let i = 1; i < mem.slots.length; i++) {
+      if (mem.slots[i].weight < mem.slots[faint].weight) faint = i;
     }
+    mem.overflow.push(mem.slots.splice(faint, 1)[0]);
   }
-  mem.slots = kept;
 }

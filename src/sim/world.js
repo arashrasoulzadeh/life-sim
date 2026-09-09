@@ -7,6 +7,9 @@ import { freshWeather, stepWeather, weatherCuriosity, rainIntensity } from "./we
 import { eraFor } from "./eras.js";
 import { applyEffect } from "./needs.js";
 import { OBJECTS, DEFAULT_OBJECTS } from "./objects.js";
+import { ROOM_IDS } from "./rooms.js";
+
+export const START_BANK = 200; // seed coins
 
 // Sim-seconds per in-game day. Real time is mapped onto sim time in main.js
 // (SIM_RATE), so all the per-second tuning below stays fixed regardless of how
@@ -60,16 +63,17 @@ export function createWorld(seed) {
     windowEvent: null,
     tally: freshTally(1),
     fx: [], // event tags drained by the audio layer
-    rooms: {
-      desk: [...DEFAULT_OBJECTS.desk],
-      kitchen: [...DEFAULT_OBJECTS.kitchen],
-      window: [...DEFAULT_OBJECTS.window],
-      couch: [...DEFAULT_OBJECTS.couch],
-      bed: [...DEFAULT_OBJECTS.bed],
-    },
+    rooms: Object.fromEntries(ROOM_IDS.map((r) => [r, [...(DEFAULT_OBJECTS[r] || [])]])),
+    roomOrder: [...ROOM_IDS], // grid order; the AI may reorder it
+    bank: START_BANK, // coins — server is authoritative, this mirrors it into the snapshot
+    incomeToday: 0,
+    expensesToday: 0,
+    incomeYesterday: 0,
+    expensesYesterday: 0,
+    gamesCount: 0,
     conversation: { log: [], bubble: null, lastMorningDay: 0, lastEveningDay: 0 },
-    roomDocs: {}, // worlds/<seed>/<room>.json contents, filled by worldfiles.js
-    dialogueRequest: null, // "morning" | "evening" — picked up by main.js
+    roomDocs: {},
+    dialogueRequest: null, // "morning" | "evening" — picked up by the server loop
     yesterday: freshTally(0), // last completed day's tally, for the evening/morning chat
     ticks: 0,
   };
@@ -193,9 +197,13 @@ export function rainLevel(w) {
 }
 
 function onNewDay(w) {
-  ageMemory(w.memory, w.agent.personality);
+  ageMemory(w.memory);
   w.yesterday = w.tally;
   w.tally = freshTally(w.day);
+  w.incomeYesterday = w.incomeToday;
+  w.expensesYesterday = w.expensesToday;
+  w.incomeToday = 0;
+  w.expensesToday = 0;
   w.conversation.lastMorningDay = w.day;
   w.dialogueRequest = "morning";
   w.fx.push("day");

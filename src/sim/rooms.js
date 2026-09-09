@@ -36,4 +36,13 @@ export const ROOMS = {
     spot: { x: 256, y: 310 },
     palette: { wall: "#161a2a", floor: "#28304a", accent: "#6b78b0" },
   },
+  game: {
+    id: "game",
+    name: "the game room",
+    floor: FLOOR,
+    spot: { x: 256, y: 320 },
+    palette: { wall: "#1a2620", floor: "#28382f", accent: "#7ad0a0" },
+  },
 };
+
+export const ROOM_IDS = ["window", "kitchen", "desk", "couch", "bed", "game"];

@@ -1,13 +1,18 @@
 // Pure room -> doc/HTML generation. No DOM, no fetch — shared by the browser
 // viewer and the server sim loop.
+//
+// The desk monitor and the game-room screen are permanent fixtures rendered as
+// <iframe> elements; the viewer sets their `src` (rotating sites.json entries /
+// the current AI-authored game). They are never in the object catalog.
 
 import { ROOMS } from "./rooms.js";
 import { OBJECTS } from "./objects.js";
 
 const FURNITURE = {
   desk:
-    '<div class="furn" style="left:35%;width:42%;top:55%;height:3.5%;background:#5a4632"></div>' +
-    '<div class="furn" style="left:57%;width:13%;top:44%;height:11%;background:#111;box-shadow:inset 0 0 0 2px #000"></div>',
+    '<div class="furn" style="left:33%;width:46%;top:55%;height:3.5%;background:#5a4632"></div>' +
+    '<div class="furn monitor" style="left:39%;width:22%;top:38%;height:17%;background:#0a0a0a;box-shadow:inset 0 0 0 2px #000">' +
+    '<iframe class="ifr site-frame" title="monitor" sandbox="allow-scripts allow-popups allow-forms" referrerpolicy="no-referrer" loading="lazy"></iframe></div>',
   kitchen:
     '<div class="furn" style="left:9%;width:39%;top:52%;height:3%;background:#7d7d86"></div>' +
     '<div class="furn" style="left:9%;width:39%;top:55%;height:10%;background:#3a3a40"></div>',
@@ -17,6 +22,10 @@ const FURNITURE = {
   bed:
     '<div class="furn" style="left:34%;width:35%;top:57%;height:12%;background:#4a4038"></div>' +
     '<div class="furn" style="left:35%;width:9%;top:53%;height:4.5%;background:#e8e8ee"></div>',
+  game:
+    '<div class="furn" style="left:30%;width:40%;top:20%;height:30%;background:#0a0a0a;box-shadow:inset 0 0 0 2px #000">' +
+    '<iframe class="ifr game-frame" title="game" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy"></iframe></div>' +
+    '<div class="furn" style="left:30%;width:40%;top:50%;height:2.5%;background:#3a4a40"></div>',
 };
 
 function esc(s) {
@@ -34,10 +43,11 @@ export function objHtml(id) {
 export function roomHtml(roomId, objects) {
   const p = ROOMS[roomId].palette;
   return (
-    `<div class="room" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent}">` +
+    `<div class="room" data-room="${roomId}" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent}">` +
     '<div class="wall"></div><div class="floor"></div>' +
     (FURNITURE[roomId] || "") +
     objects.map(objHtml).join("") +
+    `<span class="room-tag">${esc(ROOMS[roomId].name)}</span>` +
     "</div>"
   );
 }
