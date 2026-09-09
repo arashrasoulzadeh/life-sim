@@ -6,10 +6,12 @@ let cfg = {
   key: "",
   base: "https://api.gapgpt.app/v1",
   model: "gpt-4o-mini",
+  onLog: null, // (record) => void — where to send the request/response transcript
 };
 
 export function configure(c = {}) {
   for (const k of ["key", "base", "model"]) if (c[k]) cfg[k] = c[k];
+  if (typeof c.onLog === "function") cfg.onLog = c.onLog;
 }
 
 export function hasKey() {
@@ -18,20 +20,6 @@ export function hasKey() {
 
 export function info() {
   return { base: cfg.base, model: cfg.model, hasKey: !!cfg.key };
-}
-
-// best-effort append to llm.log via the dev server's POST /_log sink
-async function logToFile(entry) {
-  try {
-    await fetch("/_log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(entry),
-      keepalive: true,
-    });
-  } catch {
-    /* not served by server.py, or offline — ignore */
-  }
 }
 
 export async function chatJSON(system, user, { temperature = 0.85, timeoutMs = 15000, meta = {} } = {}) {
@@ -73,6 +61,10 @@ export async function chatJSON(system, user, { temperature = 0.85, timeoutMs = 1
     throw e;
   } finally {
     clearTimeout(timer);
-    logToFile(rec);
+    try {
+      cfg.onLog?.(rec);
+    } catch {
+      /* logging must never break the call */
+    }
   }
 }

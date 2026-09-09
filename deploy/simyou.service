@@ -1,0 +1,28 @@
+[Unit]
+Description=SimYou — a life that runs itself
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=simyou
+Group=simyou
+WorkingDirectory=/opt/simyou
+EnvironmentFile=/opt/simyou/.env
+ExecStart=/usr/bin/node /opt/simyou/server.mjs
+Restart=always
+RestartSec=3
+
+# SQLite DB path: SIMYOU_DB=/var/lib/simyou/simyou.db in .env
+StateDirectory=simyou
+StateDirectoryMode=0750
+
+# hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/simyou
+
+[Install]
+WantedBy=multi-user.target

@@ -1,87 +1,75 @@
 # SimYou
 
-An ambient, autonomous life-sim in a 512×512 window. You don't play it — you watch it.
-An AI assistant wakes, works through requests, eats, watches the world from the window,
-messages other agents, and sleeps, all driven by its own utility AI. Endless.
+An ambient, autonomous life-sim in a 512×512 window. Nobody plays it — you watch it.
+An AI assistant wakes, works through requests, eats, watches the world from the
+window, messages other agents, writes memories, ages, and sleeps — all driven by
+its own utility AI. Endless.
 
-## Run
+## Architecture
 
-No dependencies, no build step (the npm registry is unreachable on this
-network, and the sim is small enough not to need one). Just serve the folder:
+One **server process** runs the single life continuously and persists it to
+SQLite. Browsers are **pure viewers** — they connect to the `/stream` SSE feed
+and render whatever the server sends, so every visitor sees the same life at the
+same moment. No API key ever reaches the browser, and nothing pauses when no one
+is watching.
 
-```bash
-npm run dev
-```
-
-That runs `python3 -m http.server 5173`. Open http://localhost:5173
-(add `?debug` for the overlay, `?seed=12345` to replay a life).
-
-The only inputs — it's a life that runs itself:
-
-- click / `space` — begin
-- `F` — fast-forward (3 → 15 in-game minutes per real second)
-- `N` — jump to the top of the next in-game day
-- `M` — what this life remembers (memory grid + personality drift)
-- `S` — this-life card (seed, era, character, top memories) — screenshot to share
-- `C` — start/end-of-day conversation log
-- `L` — turn the start/end-of-day conversation on/off
-- `P` / speaker icon — sound (off by default; procedural, pitched to the seed's key)
-- `D` — debug overlay
-- `R` — start a new random life
-
-## Rooms are files
-
-Each life writes `worlds/<seed>/<room>.json` — palette, object list, and a
-rendered HTML fragment. The room you see is that `html` string dropped into the
-`#room-html` layer behind the canvas (the canvas only paints the agent, the
-animated window sky, the memory wall, tints, and UI). When the conversation
-adds or removes an object the file is rewritten; edit a file by hand and the
-running sim picks it up within ~3s (`pollRoom`). Served/written by `server.py`
-(`POST /_world`). `worlds/` is git-ignored.
-
-The top bar shows the seed and token count; **change seed** starts a new life
-at a seed you pick. A default seed can be set in `config.js` (`seed:`) for runs
-with no `?seed=` in the URL.
-
-## Start / end-of-day conversation
-
-Twice a day (dawn and the evening wind-down) the agent stops to talk. It shares
-its memories and the current state of the five rooms and gets back one line of
-inner voice plus, sometimes, a change to the space — add or remove an object
-from the small whitelist in `src/sim/objects.js`. Objects give a tiny passive
-lift while the agent works in that room, so the apartment slowly adapts to how
-the life is going.
-
-- **Offline (default):** a built-in stub voice. Still talks, still rearranges rooms.
-- **With GapGPT:** put your key in `config.js` (`gapgptKey`) or in
-  `localStorage.simyou_gapgpt_key`. The model only ever toggles whitelisted
-  objects (max 2/turn) and may add one memory — every field is validated in
-  `src/sim/dialogue.js` before it touches the world.
-  To keep your key out of git: `git update-index --skip-worktree config.js`.
-- `?seed=12345` — replay a specific life · `?debug` — start with the overlay on
-
-## Status — all six milestones done
-
-- [x] **M1** — 512² canvas, 5 rooms with hard cuts, sprite, status strip, day/night light
-- [x] **M2** — needs + pressure curves, utility-AI action scoring, legible thought line
-- [x] **M3** — request stream, tokens, reputation feedback loop
-- [x] **M4** — daily reflection → memory grid → permanent personality drift → forgetting
-- [x] **M5** — mood (slow need-average) drives posture / walk speed / thought tone;
-  drifting weather (clear→clouds→rain→storm→gold) seen through the window;
-  rare one-off window events
-- [x] **M6** — aging eras (decay rate, walk speed, colour cast shift over a long life),
-  procedural audio (pad that tracks mood, rain bed, event blips), title screen,
-  shareable seed card card
-
-## Layout
-
-- `src/sim/` — the simulation:
+- **`src/sim/`** — the simulation, pure (no DOM):
   - `needs`, `actions`, `rooms` — data + curves
   - `agent` — the utility AI (scores every action each decision, moves, thinks)
   - `memory` — themes, salience, reinforcement, forgetting, drift into personality
-  - `mood`, `weather`, `eras` — the M5/M6 ambient systems
-  - `world` — clock, economy, weather/era wiring, per-day tallies, `tick()`
-- `src/render/draw.js` — all rendering (rooms, agent, overlays, title, card)
-- `src/engine/rng.js` — seeded Mulberry32; a life is reproducible from its seed
-- `src/engine/audio.js` — procedural WebAudio (no asset files)
-- `src/main.js` — fixed-timestep loop (30 Hz), title gate, input, fx→audio
+  - `mood`, `weather`, `eras` — the ambient systems
+  - `dialogue` — the start/end-of-day conversation prompt + safe apply
+  - `roomrender` — room → HTML fragment
+  - `world` — clock, economy, wiring, `tick()`
+- **`server.mjs`** — runs the loop (3 in-game min/sec), calls GapGPT server-side
+  at dawn/dusk, writes the `state` / `memories` / `rooms` / `conversations` /
+  `llm_calls` tables (`node:sqlite`, zero npm packages), serves the viewer + SSE.
+- **`src/main.js`** — the viewer: SSE in, smooth the agent, `render()`.
+- **`src/render/draw.js`** — canvas layer: agent, animated window sky, memory
+  wall, day/night + era tints, corridor, UI. The room scene (walls, floor,
+  furniture, emoji objects) is an HTML layer behind the canvas.
+- **`src/engine/rng.js`** — seeded Mulberry32; a life is reproducible from its seed.
+- **`src/engine/audio.js`** — procedural WebAudio, pitched to the seed's key.
+
+## Run locally
+
+Needs **Node ≥ 22.5** (for the built-in `node:sqlite`). No `npm install`.
+
+```bash
+cp .env.example .env          # optional: SIMYOU_GAPGPT_KEY, SIMYOU_SEED, …
+npm run dev                   # = node server.mjs
+```
+
+Open http://localhost:5173 — the life is already running. `?debug` shows the
+overlay. The DB is `simyou.db` in the project dir unless `SIMYOU_DB` is set.
+
+## Deploy
+
+[`deploy/DEPLOY.md`](deploy/DEPLOY.md) — systemd unit + nginx config for running
+it at a domain with TLS. State is persisted every 5s and on shutdown, and
+resumed from the DB on start, so `systemctl restart` is safe.
+
+## Start / end-of-day conversation
+
+Twice a day the agent stops to talk. The prompt carries its personality, all its
+memories, every room's contents, and the day's tally. The reply is one line of
+inner voice, up to two whitelisted room add/removes, and optionally one new
+memory. Every field is validated in `src/sim/dialogue.js` before it touches the
+world. Without `SIMYOU_GAPGPT_KEY` an offline stub voice stands in — it still
+talks and still rearranges rooms.
+
+## Viewer keys (optional — the life needs no input)
+
+- `M` — what this life remembers (memory grid + personality drift)
+- `C` — start/end-of-day conversation log
+- `S` — this-life card (seed, era, character, top memories)
+- `P` / speaker icon — sound (off by default)
+- `D` — debug overlay
+
+## Inspecting a running life
+
+```bash
+sqlite3 simyou.db 'select txt,trait,dir,weight from memories order by weight desc;'
+sqlite3 simyou.db 'select day,phase,source,line from conversations order by rowid desc limit 20;'
+sqlite3 simyou.db 'select ts,phase,status,content from llm_calls order by rowid desc limit 20;'
+```

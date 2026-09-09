@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "simyou-dev",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["server.py", "5173"],
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.mjs"],
       "port": 5173
     }
   ]

@@ -2,11 +2,18 @@ node_modules
 dist
 .DS_Store
 
-# local config — may hold an API key
+# local config — may hold an API key (legacy; prod uses .env)
 config.js
+config.local.js
 
-# runtime LLM call log
+# environment
+.env
+
+# sqlite database + WAL sidecars
+*.db
+*.db-shm
+*.db-wal
+
+# legacy runtime logs / files
 llm.log
-
-# per-life room files (worlds/<seed>/<room>.json)
 worlds/

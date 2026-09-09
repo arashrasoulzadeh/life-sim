@@ -33,17 +33,7 @@
       #topbar .grow { flex: 1; }
       #tb-seed { color: #8fb8e8; }
       #tb-tok { color: #e0b45c; }
-      #tb-seedbtn {
-        font: inherit;
-        font-size: 11px;
-        color: #c8ccd4;
-        background: #171b22;
-        border: 1px solid #2b323d;
-        border-radius: 4px;
-        padding: 3px 9px;
-        cursor: pointer;
-      }
-      #tb-seedbtn:hover { background: #1f2530; border-color: #3d4655; }
+      #tb-note { color: #4b525e; font-size: 11px; }
 
       #stage {
         position: relative;
@@ -113,7 +103,7 @@
       <span id="tb-seed">seed —</span>
       <span id="tb-tok">◊ 0</span>
       <span class="grow"></span>
-      <button id="tb-seedbtn">change seed</button>
+      <span id="tb-note">a life that runs itself</span>
     </div>
 
     <div id="stage">
@@ -121,11 +111,8 @@
       <canvas id="screen" width="512" height="512"></canvas>
     </div>
 
-    <div id="hint">
-      [F] fast-forward · [N] next day · [M] memory · [C] conversations · [S] this life · [L] talk · [P] mute · [D] debug · [R] new life
-    </div>
+    <div id="hint">[M] memory · [C] conversations · [S] this life · [P] mute · [D] debug</div>
 
-    <script src="./config.js"></script>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>
