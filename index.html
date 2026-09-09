@@ -4,213 +4,154 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SimYou</title>
+    <meta name="theme-color" content="#0b0d10" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <style>
       :root { color-scheme: dark; }
       html, body {
-        margin: 0;
-        min-height: 100%;
-        background: #0b0d10;
-        color: #c8ccd4;
+        margin: 0; min-height: 100%;
+        background: #0b0d10; color: #c8ccd4;
         font-family: ui-monospace, "SF Mono", Menlo, monospace;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        padding: 16px 0 40px;
-        box-sizing: border-box;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 8px; padding: 14px 0 36px; box-sizing: border-box;
       }
-
       #topbar {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        width: min(90vmin, 768px);
-        font-size: 12px;
-        letter-spacing: 0.04em;
+        display: flex; align-items: center; gap: 12px;
+        width: min(90vmin, 768px); font-size: 12px; letter-spacing: 0.04em;
       }
       #topbar b { color: #e6e9f0; letter-spacing: 0.12em; }
       #topbar .grow { flex: 1; }
       #tb-seed { color: #8fb8e8; }
       #tb-tok { color: #e0b45c; }
-      #tb-note { color: #4b525e; font-size: 11px; }
+      #conn { width: 8px; height: 8px; border-radius: 50%; background: #e0b45c; flex: none; }
+      #conn[data-state="ok"] { background: #7ad0a0; }
+      #conn[data-state="wait"] { background: #e0b45c; }
+      #conn[data-state="off"] { background: #e06a5c; }
       #topbar button {
-        font: inherit;
-        font-size: 11px;
-        color: #c8ccd4;
-        background: #171b22;
-        border: 1px solid #2b323d;
-        border-radius: 4px;
-        padding: 3px 9px;
-        cursor: pointer;
+        font: inherit; font-size: 11px; color: #c8ccd4;
+        background: #171b22; border: 1px solid #2b323d; border-radius: 4px;
+        padding: 3px 9px; cursor: pointer;
       }
       #topbar button:hover { background: #1f2530; }
-      #zoombtn[hidden] { display: none; }
-
-      #about {
-        max-width: 460px;
-        width: calc(100vw - 40px);
-        border: 1px solid #2b323d;
-        border-radius: 8px;
-        background: #12151b;
-        color: #c3c8d2;
-        padding: 22px 24px 20px;
-        font-size: 13px;
-        line-height: 1.55;
-      }
-      #about::backdrop { background: rgba(0, 0, 0, 0.6); }
-      #about h2 { margin: 0 0 10px; font-size: 15px; color: #e6e9f0; letter-spacing: 0.06em; }
-      #about p { margin: 0 0 10px; }
-      #about b { color: #e6e9f0; }
-      #about .k { color: #e0b45c; }
-      #about .close {
-        margin-top: 6px;
-        float: right;
-        background: #1f2530;
-        border-color: #3d4655;
+      #topbar button[hidden] { display: none; }
+      #tb-quote {
+        color: #6b7686; font-size: 11px; font-style: italic;
+        max-width: 46%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
       }
 
       #stage {
-        position: relative;
-        width: min(90vmin, 768px);
-        height: min(90vmin, 768px);
-        background: #000;
-        box-shadow: 0 0 0 1px #222, 0 24px 80px rgba(0, 0, 0, 0.6);
+        position: relative; width: min(90vmin, 768px); height: min(90vmin, 768px);
+        background: #000; box-shadow: 0 0 0 1px #222, 0 24px 80px rgba(0, 0, 0, 0.6);
       }
-
-      /* room layer — the playfield is the top 87.5% (448/512); canvas is on top */
       #rooms {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        height: 87.5%;
-        z-index: 1;
-        pointer-events: none;
-        overflow: hidden;
+        position: absolute; left: 0; top: 0; width: 100%; height: 87.5%;
+        z-index: 1; pointer-events: none; overflow: hidden;
       }
-      #rooms.grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        grid-template-rows: repeat(3, 1fr);
-      }
+      #rooms.grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); }
       #rooms .cell { position: relative; overflow: hidden; container-type: size; }
       #rooms.zoom .cell { display: none; }
       #rooms.zoom .cell.active { display: block; position: absolute; inset: 0; }
-
       #rooms .room { position: absolute; inset: 0; }
       #rooms .wall { position: absolute; inset: 0 0 40% 0; background: var(--wall); }
       #rooms .floor {
-        position: absolute;
-        inset: 60% 0 0 0;
-        background: var(--floor);
+        position: absolute; inset: 60% 0 0 0; background: var(--floor);
         box-shadow: inset 0 3px 0 color-mix(in srgb, var(--accent) 55%, #000);
       }
       #rooms .floor::before {
-        content: "";
-        position: absolute;
-        inset: 0;
+        content: ""; position: absolute; inset: 0;
         background: repeating-linear-gradient(rgba(0, 0, 0, 0.05) 0 2px, transparent 2px 10px);
       }
       #rooms .furn { position: absolute; border-radius: 2px; overflow: hidden; }
       #rooms .obj {
-        position: absolute;
-        transform: translate(-50%, -50%);
-        font-size: 8cqmin;
-        line-height: 1;
-        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.45));
+        position: absolute; transform: translate(-50%, -50%);
+        font-size: 8cqmin; line-height: 1; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.45));
       }
       #rooms.zoom .obj { font-size: 5cqmin; }
       #rooms .room-tag {
-        position: absolute;
-        left: 4px;
-        top: 3px;
-        font-size: 3cqmin;
-        color: rgba(255, 255, 255, 0.32);
-        letter-spacing: 0.04em;
-        pointer-events: none;
+        position: absolute; left: 4px; top: 3px; font-size: 3cqmin;
+        color: rgba(255, 255, 255, 0.32); letter-spacing: 0.04em; pointer-events: none;
       }
       #rooms.zoom .room-tag { display: none; }
       .ifr {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        border: 0;
-        background: #05070a;
-        pointer-events: none;
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        border: 0; background: #05070a; pointer-events: none;
       }
-
+      .frame-cap {
+        position: absolute; left: 0; right: 0; bottom: 0;
+        font-size: 2.4cqmin; text-align: center; color: rgba(255, 255, 255, 0.4);
+        background: rgba(0, 0, 0, 0.4); padding: 1px 0; pointer-events: none;
+      }
       #screen {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        image-rendering: pixelated;
-        z-index: 2;
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        image-rendering: pixelated; z-index: 2;
+      }
+      #hint {
+        color: #444; font-size: 11px; letter-spacing: 0.06em;
+        text-align: center; max-width: 90vw;
       }
 
-      #hint {
-        color: #444;
-        font-size: 11px;
-        letter-spacing: 0.06em;
-        text-align: center;
-        max-width: 90vw;
+      dialog {
+        max-width: 500px; width: calc(100vw - 40px);
+        border: 1px solid #2b323d; border-radius: 8px; background: #12151b;
+        color: #c3c8d2; padding: 20px 22px; font-size: 13px; line-height: 1.55;
       }
+      dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+      dialog h2 { margin: 0 0 10px; font-size: 14px; color: #e6e9f0; letter-spacing: 0.06em; }
+      dialog p { margin: 0 0 10px; }
+      dialog b { color: #e6e9f0; }
+      dialog .k { color: #e0b45c; }
+      dialog pre {
+        margin: 0; white-space: pre-wrap; word-break: break-word;
+        font: 11px ui-monospace, Menlo, monospace; color: #b6bcc8;
+        max-height: 60vh; overflow: auto;
+      }
+      dialog .close { margin-top: 10px; float: right; background: #1f2530; border-color: #3d4655; }
     </style>
   </head>
   <body>
     <div id="topbar">
       <b>SIMYOU</b>
+      <span id="conn" data-state="wait" title="connecting…"></span>
       <span id="tb-seed">seed —</span>
       <span id="tb-tok">◊ 0</span>
       <span class="grow"></span>
+      <span id="tb-quote">a life that runs itself</span>
+      <button id="gamecodebtn" hidden>game code</button>
       <button id="zoombtn" hidden>⤢ grid</button>
       <button id="about-btn">what is this?</button>
     </div>
-
-    <dialog id="about">
-      <h2>WHAT IS THIS?</h2>
-      <p>
-        <b>SimYou</b> is one small life, running by itself. Nobody plays it. An AI assistant
-        lives alone in a six-room apartment and decides everything it does.
-      </p>
-      <p>
-        It moves between rooms to look after itself — <span class="k">focus</span>,
-        <span class="k">energy</span>, <span class="k">social</span> and
-        <span class="k">curiosity</span> all drain over time, so it works at the desk, eats in
-        the kitchen, watches the street from the window, messages other agents from the couch,
-        and sleeps.
-      </p>
-      <p>
-        Twice a day — dawn and dusk — it stops to think. A real language model writes its
-        inner voice (the speech bubble) and, in the evening, decides what to <b>buy</b>,
-        <b>sell</b>, rearrange, or build with the coins in its bank.
-      </p>
-      <p>
-        <b>You are its income.</b> While your tab is open, the site on the desk monitor earns
-        it coins. It spends them on furniture and on little <b>games it programs for itself</b>
-        and plays in the game room.
-      </p>
-      <p>
-        Everything it learns becomes a permanent memory that slowly shifts its personality, so
-        the life on day 400 is not the life on day 4. It has run continuously since it booted,
-        and everyone watching right now is watching the same moment.
-      </p>
-      <p style="color: #7f8a9c">
-        Click any room to zoom in. <span class="k">M</span> memories ·
-        <span class="k">C</span> its conversations · <span class="k">S</span> this life.
-      </p>
-      <button class="close" id="about-close">close</button>
-    </dialog>
 
     <div id="stage">
       <div id="rooms" class="grid"></div>
       <canvas id="screen" width="512" height="512"></canvas>
     </div>
 
-    <div id="hint">new here? hit <b style="color:#8b93a3">what is this?</b> · click a room to zoom · [M] memory · [C] conversations · [S] this life · [P] mute</div>
+    <div id="hint">click a room to zoom · [M] memory · [C] conversations · [S] this life · [P] money · [X] mute · [D] debug</div>
 
-    <script type="module" src="./src/main.js"></script>
+    <dialog id="about">
+      <h2>WHAT IS THIS?</h2>
+      <p><b>SimYou</b> is one small life, running by itself. Nobody plays it. An AI assistant lives alone in a six-room apartment and decides everything it does.</p>
+      <p>It looks after itself — <span class="k">focus</span>, <span class="k">energy</span>, <span class="k">social</span>, <span class="k">curiosity</span> all drain, so it works at the desk, eats, watches the window, messages other agents, and sleeps.</p>
+      <p>Twice a day it stops to think. A language model writes its inner voice and, in the evening, decides what to <b>buy</b>, <b>sell</b>, rebuild, recolour, or make — within the coins in its bank.</p>
+      <p><b>You are its income.</b> While your tab is open, the site on the desk monitor earns it coins. It spends them on furniture and on small <b>games it commissions</b> — it only picks a built-in game type and its settings; it never writes code.</p>
+      <p>Everything it learns is a permanent memory that shifts its personality. It has run continuously since it booted, and everyone watching sees the same moment.</p>
+      <p style="color:#7f8a9c">Click a room to zoom. <span class="k">M</span> memory · <span class="k">C</span> its conversations · <span class="k">S</span> this life · <span class="k">P</span> its money.</p>
+      <button class="close" id="about-close">close</button>
+    </dialog>
+
+    <dialog id="econ">
+      <h2>MONEY — SPEND / INCOME</h2>
+      <pre id="econ-body">…</pre>
+      <button class="close" id="econ-close">close</button>
+    </dialog>
+
+    <dialog id="gamecode">
+      <h2>GAME CODE</h2>
+      <pre id="gamecode-body">…</pre>
+      <button class="close" id="gamecode-close">close</button>
+    </dialog>
+
+    <script type="module" src="/src/main.js"></script>
   </body>
 </html>

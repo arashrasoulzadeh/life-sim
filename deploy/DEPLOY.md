@@ -67,7 +67,21 @@ restrictive `frame-ancestors`) — your own pages are safest. Viewers watching
 these on the desk monitor is how the life earns coins. No `sites.json` → it never
 earns and buys nothing.
 
-### 4. systemd
+### 4a. Run it — Docker (recommended for isolation)
+
+```bash
+docker compose up -d --build
+docker compose logs -f
+```
+
+The container runs as a non-root user with a **read-only filesystem**, no
+capabilities, and `no-new-privileges`; only `/data` (a named volume, the DB) and
+`/tmp` are writable. `.env` and `sites.json` are mounted from the host, never
+baked in. nginx (step 5) proxies to `127.0.0.1:5173`.
+
+Update: `git pull && docker compose up -d --build`.
+
+### 4b. Run it — systemd (no Docker)
 
 The shipped unit runs as `ubuntu` from `/home/ubuntu/life-sim` — edit `User` and
 the three paths in `deploy/simyou.service` if yours differ.
@@ -138,6 +152,15 @@ Cheaper: raise the pace constant `BASE_RATE` in `server.mjs`, or
 
 ## Endpoints
 
-`/` viewer · `/stream` SSE · `/state` snapshot · `/api/rooms` `/api/bank`
-`/api/ledger` `/api/conversations` `/api/memories` `/api/games` · `/api/sites`
-`/api/impression` (viewer attention) · `/games/:id` (sandboxed game HTML)
+`/` viewer (PWA — installable, shell cached offline) · `/stream` SSE ·
+`/state` snapshot · `/api/rooms` `/api/bank` `/api/ledger` `/api/daily`
+`/api/conversations` `/api/memories` `/api/games` `/api/games/:id`
+`/api/quotes` · `/api/sites` · `/api/impression` (viewer attention) ·
+`/games/:id` (sandboxed, nonce-CSP, engine inlined — the AI only supplies a
+validated `{kernel, params}`, never code)
+
+## Config knobs (12-factor — all via env)
+
+`SIMYOU_SEED` `SIMYOU_PORT` `SIMYOU_DB` `SIMYOU_SITES` `SIMYOU_GAPGPT_KEY`
+`SIMYOU_GAPGPT_BASE` `SIMYOU_GAPGPT_MODEL` `SIMYOU_DIALOGUE` `SIMYOU_DB_CAP_MB`
+`SIMYOU_BROADCAST_MS`. No config in code; logs go to stdout; state is the DB.

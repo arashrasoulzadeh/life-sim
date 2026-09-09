@@ -1,5 +1,5 @@
 import { Rng } from "../engine/rng.js";
-import { makeAgent, stepAgent } from "./agent.js";
+import { makeAgent, stepAgent, stepRoutine } from "./agent.js";
 import { decayNeeds } from "./needs.js";
 import { freshMemory, writeMemory, ageMemory } from "./memory.js";
 import { freshMood, updateMood } from "./mood.js";
@@ -65,12 +65,15 @@ export function createWorld(seed) {
     fx: [], // event tags drained by the audio layer
     rooms: Object.fromEntries(ROOM_IDS.map((r) => [r, [...(DEFAULT_OBJECTS[r] || [])]])),
     roomOrder: [...ROOM_IDS], // grid order; the AI may reorder it
+    roomStyle: {}, // { [id]: { name?, palette?:{wall,floor,accent} } } — AI name/colour overrides, validated
+
     bank: START_BANK, // coins — server is authoritative, this mirrors it into the snapshot
     incomeToday: 0,
     expensesToday: 0,
     incomeYesterday: 0,
     expensesYesterday: 0,
     gamesCount: 0,
+    quote: null, // { text, day } — quote of the day from this life's history
     conversation: { log: [], bubble: null, lastMorningDay: 0, lastEveningDay: 0 },
     roomDocs: {},
     dialogueRequest: null, // "morning" | "evening" — picked up by the server loop
@@ -149,6 +152,18 @@ export function tick(w, dt) {
 
   const wantsReflect =
     w.dayFrac >= 0.42 && w.dayFrac < 0.72 && w.memory.lastWrittenDay < w.day && w.requests <= 3;
+
+  // a playful routine plays out once, in daylight, while idle — the utility AI pauses
+  const performing = !w.isNight && stepRoutine(w.agent, dt);
+  if (performing) {
+    updateMood(w.mood, w.agent.needs, dt);
+    w.tally.minFocus = Math.min(w.tally.minFocus, w.agent.needs.focus);
+    w.tally.minSocial = Math.min(w.tally.minSocial, w.agent.needs.social);
+    w.tally.repSum += w.reputation;
+    w.tally.repSamples++;
+    if (w.day !== prevDay) onNewDay(w);
+    return;
+  }
 
   stepAgent(
     w.agent,

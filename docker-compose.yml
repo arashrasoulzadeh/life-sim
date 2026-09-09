@@ -1,0 +1,26 @@
+services:
+  simyou:
+    build: .
+    image: simyou
+    restart: unless-stopped
+    # only nginx on the host talks to it
+    ports:
+      - "127.0.0.1:5173:5173"
+    env_file: .env
+    environment:
+      SIMYOU_DB: /data/simyou.db
+      SIMYOU_SITES: /app/sites.json
+    volumes:
+      - ./sites.json:/app/sites.json:ro
+      - simyou-data:/data
+    # hardening
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  simyou-data:

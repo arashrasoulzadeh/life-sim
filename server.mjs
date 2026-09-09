@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import { readFileSync, existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 import { createWorld, tick, drainFx, DAY_LENGTH, START_BANK } from "./src/sim/world.js";
@@ -21,6 +21,7 @@ import { buildPrompt, applyMorning, applyEvening, stubDialogue } from "./src/sim
 import { rainIntensity } from "./src/sim/weather.js";
 import { roomDoc, initDocs } from "./src/sim/roomrender.js";
 import { ROOM_IDS } from "./src/sim/rooms.js";
+import { describeSpec } from "./src/game/kernels.js";
 import * as Gap from "./src/engine/gapgpt.js";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -37,10 +38,14 @@ const BASE_RATE = (3 / (24 * 60)) * DAY_LENGTH; // sim-seconds per real second (
 const REAL_SECS_PER_DAY = DAY_LENGTH / BASE_RATE; // ~480
 const FIXED_DT = 1 / 30;
 const TICK_MS = 100;
-const BROADCAST_MS = 150;
+const BROADCAST_MS = Number(process.env.SIMYOU_BROADCAST_MS || 500); // SSE cadence — keep low
 const PERSIST_MS = 5000;
 
-const DB_SOFT_CAP = 900 * 1024 * 1024;
+const DB_CAP_MB = Number(process.env.SIMYOU_DB_CAP_MB || 900);
+const DB_SOFT_CAP = DB_CAP_MB * 1024 * 1024;
+// retention scales with the cap: a bigger budget keeps more llm_calls / history
+const LLM_KEEP = Math.max(500, Math.round(DB_CAP_MB * 3));
+const CONV_KEEP_DAYS = Math.max(60, Math.round(DB_CAP_MB / 4));
 const LLM_BLOB_CAP = 8 * 1024;
 const MAX_GAMES = 10;
 const VIEWER_DAY_SECONDS_CAP = REAL_SECS_PER_DAY; // one in-game day of credited watching per viewer
@@ -53,6 +58,10 @@ try {
   console.error("[simyou] sites.json:", e.message);
 }
 const siteById = new Map(SITES.sites.map((s) => [s.id, s]));
+
+// the game engine, inlined per-response with a nonce so the game frame needs
+// only sandbox="allow-scripts" — no same-origin, no external fetch, ever
+const GAME_JS = readFileSync(join(ROOT, "src/game/game.js"), "utf8");
 
 // ---------- database ----------
 const db = new DatabaseSync(DB_PATH);
@@ -67,13 +76,17 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS memory_digest (seed TEXT, month INTEGER, summary TEXT, cnt INTEGER, created_at TEXT, PRIMARY KEY (seed, month));
   CREATE TABLE IF NOT EXISTS life_summary (seed TEXT PRIMARY KEY, txt TEXT, updated_day INTEGER);
   CREATE TABLE IF NOT EXISTS rooms (seed TEXT, room TEXT, objects TEXT, html TEXT, updated TEXT, PRIMARY KEY (seed, room));
-  CREATE TABLE IF NOT EXISTS conversations (seed TEXT, day INTEGER, phase TEXT, source TEXT, line TEXT, changes TEXT, created_at TEXT);
+  CREATE TABLE IF NOT EXISTS conversations (seed TEXT, day INTEGER, phase TEXT, source TEXT, line TEXT, reply TEXT, changes TEXT, created_at TEXT);
   CREATE TABLE IF NOT EXISTS llm_calls (seed TEXT, ts TEXT, phase TEXT, day INTEGER, status INTEGER, request TEXT, content TEXT, parsed TEXT, error TEXT);
   CREATE TABLE IF NOT EXISTS bank (seed TEXT PRIMARY KEY, balance REAL, updated TEXT);
   CREATE TABLE IF NOT EXISTS ledger (seed TEXT, ts TEXT, kind TEXT, amount REAL, note TEXT);
-  CREATE TABLE IF NOT EXISTS games (seed TEXT, id INTEGER, title TEXT, html TEXT, created_day INTEGER, plays INTEGER DEFAULT 0, bytes INTEGER, PRIMARY KEY (seed, id));
+  CREATE TABLE IF NOT EXISTS daily (seed TEXT, day INTEGER, income REAL DEFAULT 0, expense REAL DEFAULT 0, PRIMARY KEY (seed, day));
+  CREATE TABLE IF NOT EXISTS games (seed TEXT, id INTEGER, title TEXT, spec TEXT, created_day INTEGER, plays INTEGER DEFAULT 0, PRIMARY KEY (seed, id));
+  CREATE TABLE IF NOT EXISTS quotes (seed TEXT, day INTEGER, txt TEXT, PRIMARY KEY (seed, day));
   CREATE TABLE IF NOT EXISTS impressions (seed TEXT, day INTEGER, viewer TEXT, site TEXT, seconds REAL, credited REAL, PRIMARY KEY (seed, day, viewer, site));
 `);
+// migrate older DBs missing the reply column
+try { db.exec(`ALTER TABLE conversations ADD COLUMN reply TEXT`); } catch { /* already there */ }
 
 const Q = {
   loadState: db.prepare(`SELECT snapshot FROM state WHERE seed=?`),
@@ -103,20 +116,25 @@ const Q = {
   roomSave: db.prepare(
     `INSERT INTO rooms (seed,room,objects,html,updated) VALUES (?,?,?,?,?) ON CONFLICT(seed,room) DO UPDATE SET objects=excluded.objects, html=excluded.html, updated=excluded.updated`,
   ),
-  roomGet: db.prepare(`SELECT objects,html,updated FROM rooms WHERE seed=? AND room=?`),
-  convIns: db.prepare(`INSERT INTO conversations (seed,day,phase,source,line,changes,created_at) VALUES (?,?,?,?,?,?,?)`),
-  convList: db.prepare(`SELECT day,phase,source,line,changes,created_at FROM conversations WHERE seed=? ORDER BY rowid DESC LIMIT 60`),
+  convIns: db.prepare(`INSERT INTO conversations (seed,day,phase,source,line,reply,changes,created_at) VALUES (?,?,?,?,?,?,?,?)`),
+  convList: db.prepare(`SELECT day,phase,source,line,reply,changes,created_at FROM conversations WHERE seed=? ORDER BY rowid DESC LIMIT 60`),
   llmIns: db.prepare(`INSERT INTO llm_calls (seed,ts,phase,day,status,request,content,parsed,error) VALUES (?,?,?,?,?,?,?,?,?)`),
-  llmTrim: db.prepare(`DELETE FROM llm_calls WHERE seed=? AND rowid NOT IN (SELECT rowid FROM llm_calls WHERE seed=? ORDER BY rowid DESC LIMIT 2000)`),
+  llmTrim: db.prepare(`DELETE FROM llm_calls WHERE seed=? AND rowid NOT IN (SELECT rowid FROM llm_calls WHERE seed=? ORDER BY rowid DESC LIMIT ${LLM_KEEP})`),
   convTrim: db.prepare(`DELETE FROM conversations WHERE seed=? AND day < ?`),
   bankGet: db.prepare(`SELECT balance FROM bank WHERE seed=?`),
   bankSet: db.prepare(`INSERT INTO bank (seed,balance,updated) VALUES (?,?,?) ON CONFLICT(seed) DO UPDATE SET balance=excluded.balance, updated=excluded.updated`),
   ledgerIns: db.prepare(`INSERT INTO ledger (seed,ts,kind,amount,note) VALUES (?,?,?,?,?)`),
   ledgerTail: db.prepare(`SELECT ts,kind,amount,note FROM ledger WHERE seed=? ORDER BY rowid DESC LIMIT 40`),
-  gameIns: db.prepare(`INSERT INTO games (seed,id,title,html,created_day,plays,bytes) VALUES (?,?,?,?,?,0,?)`),
+  dailyAdd: db.prepare(
+    `INSERT INTO daily (seed,day,income,expense) VALUES (?,?,?,?) ON CONFLICT(seed,day) DO UPDATE SET income=income+excluded.income, expense=expense+excluded.expense`,
+  ),
+  dailyList: db.prepare(`SELECT day,income,expense FROM daily WHERE seed=? ORDER BY day DESC LIMIT 30`),
+  quoteSet: db.prepare(`INSERT INTO quotes (seed,day,txt) VALUES (?,?,?) ON CONFLICT(seed,day) DO UPDATE SET txt=excluded.txt`),
+  quoteList: db.prepare(`SELECT day,txt FROM quotes WHERE seed=? ORDER BY day DESC LIMIT 30`),
+  gameIns: db.prepare(`INSERT INTO games (seed,id,title,spec,created_day,plays) VALUES (?,?,?,?,?,0)`),
   gamePlays: db.prepare(`UPDATE games SET plays=plays+1 WHERE seed=? AND id=?`),
-  gameList: db.prepare(`SELECT id,title,created_day,plays,bytes FROM games WHERE seed=? ORDER BY id DESC`),
-  gameHtml: db.prepare(`SELECT html FROM games WHERE seed=? AND id=?`),
+  gameList: db.prepare(`SELECT id,title,created_day,plays FROM games WHERE seed=? ORDER BY id DESC`),
+  gameSpec: db.prepare(`SELECT title,spec,created_day,plays FROM games WHERE seed=? AND id=?`),
   gamePrune: db.prepare(`DELETE FROM games WHERE seed=? AND id NOT IN (SELECT id FROM games WHERE seed=? ORDER BY id DESC LIMIT ${MAX_GAMES})`),
   imprGet: db.prepare(`SELECT seconds,credited FROM impressions WHERE seed=? AND day=? AND viewer=? AND site=?`),
   imprDaySum: db.prepare(`SELECT COALESCE(SUM(credited),0) s FROM impressions WHERE seed=? AND day=? AND viewer=?`),
@@ -143,6 +161,8 @@ function restore(seed, json) {
   w.started = true;
   for (const r of ROOM_IDS) if (!w.rooms[r]) w.rooms[r] = [];
   if (!Array.isArray(w.roomOrder) || w.roomOrder.length !== ROOM_IDS.length) w.roomOrder = [...ROOM_IDS];
+  if (!w.roomStyle || typeof w.roomStyle !== "object") w.roomStyle = {};
+  if (!w.agent.look) w.agent.look = { skin: "#f0d9b8", shirt: "#dfe3ea", visor: "#3a4a8a" };
   if (!w.memory.overflow) w.memory.overflow = [];
   if (!w.roomDocs || Object.keys(w.roomDocs).length < ROOM_IDS.length) initDocs(w);
   return w;
@@ -224,26 +244,39 @@ async function runDialogue(phase) {
 }
 
 function finishDialogue(phase, r) {
-  if (r.spent) world.expensesToday += r.spent;
-  if (r.earned) world.incomeToday += r.earned;
-  if (r.spent) ledger("spend", -r.spent, `${phase} purchases`);
-  if (r.earned) ledger("sale", r.earned, `${phase} sales`);
+  if (r.spent) {
+    world.expensesToday += r.spent;
+    ledger("spend", -r.spent, `${phase} purchases`);
+    try { Q.dailyAdd.run(String(SEED), world.day, 0, r.spent); } catch { /* ignore */ }
+  }
+  if (r.earned) {
+    world.incomeToday += r.earned;
+    ledger("sale", r.earned, `${phase} sales`);
+    try { Q.dailyAdd.run(String(SEED), world.day, r.earned, 0); } catch { /* ignore */ }
+  }
   if (r.game) commitGame(r.game);
+  if (phase === "morning" && r.quote && r.quote.length > 3) setQuote(r.quote);
 
-  const entry = { phase, day: world.day, line: r.line || "", changes: r.changes || [], source: r.source, at: Date.now() };
+  const entry = { phase, day: world.day, line: r.line || "", reply: r.reply || "", changes: r.changes || [], source: r.source, at: Date.now() };
   world.conversation.log.push(entry);
-  while (world.conversation.log.length > 60) world.conversation.log.shift();
+  while (world.conversation.log.length > 40) world.conversation.log.shift();
   world.conversation.bubble = { ...entry, ttl: 22 };
 
-  regenRooms();
+  regenRooms(true);
   persistRooms();
   persistMemories();
-  persistBank("dialogue", 0, phase);
+  persistBank();
   try {
-    Q.convIns.run(String(SEED), world.day, phase, r.source, entry.line, JSON.stringify(entry.changes), new Date().toISOString());
+    Q.convIns.run(String(SEED), world.day, phase, r.source, entry.line, entry.reply, JSON.stringify(entry.changes), new Date().toISOString());
   } catch (e) {
     console.error("[simyou] conv persist:", e.message);
   }
+}
+
+function setQuote(txt) {
+  const q = String(txt).slice(0, 150);
+  world.quote = { text: q, day: world.day };
+  try { Q.quoteSet.run(String(SEED), world.day, q); } catch { /* ignore */ }
 }
 
 function buildCtx() {
@@ -259,12 +292,11 @@ function buildCtx() {
   return { digests, lifeSummary: life?.txt || "", sites, gamesList };
 }
 
-// ---------- games ----------
+// ---------- games (spec only — never code) ----------
 function commitGame(g) {
   const id = ++world.latestGameId;
-  const bytes = Buffer.byteLength(g.html, "utf8");
   try {
-    Q.gameIns.run(String(SEED), id, g.title, g.html, world.day, bytes);
+    Q.gameIns.run(String(SEED), id, g.title, JSON.stringify(g.spec), world.day);
     Q.gamePrune.run(String(SEED), String(SEED));
     world.gamesCount = Q.gameList.all(String(SEED)).length;
     world.fx.push("memory");
@@ -274,12 +306,12 @@ function commitGame(g) {
 }
 
 // ---------- rooms ----------
-function regenRooms() {
-  let bumped = false;
+function regenRooms(force) {
+  let bumped = !!force;
   for (const rid of ROOM_IDS) {
     const cur = world.roomDocs[rid];
-    if (!cur || (cur.objects || []).join(",") !== (world.rooms[rid] || []).join(",")) {
-      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || []);
+    if (force || !cur || (cur.objects || []).join(",") !== (world.rooms[rid] || []).join(",")) {
+      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle);
       bumped = true;
     }
   }
@@ -377,6 +409,17 @@ function onNewDayServer() {
       console.error("[simyou] life summary:", e.message);
     }
   }
+
+  // roll yesterday's totals into the daily table (income beats also land there live)
+  try {
+    Q.dailyAdd.run(String(SEED), world.day - 1, 0, 0); // ensure the row exists
+  } catch { /* ignore */ }
+
+  // if the morning conversation didn't give a quote, make one from history
+  if (!world.quote || world.quote.day < world.day) {
+    const top = Q.memTopActive.all(String(SEED)).map((r) => r.txt);
+    if (top.length) setQuote(`"${top[Math.floor(Math.random() * Math.min(3, top.length))]}"`);
+  }
 }
 function dominant(p) {
   return Object.entries(p).sort((a, b) => b[1] - a[1])[0][0];
@@ -391,7 +434,7 @@ function sizeGuard() {
     if (bytes > DB_SOFT_CAP) {
       console.log(`[simyou] db ${(bytes / 1e6) | 0}MB > cap — trimming`);
       Q.llmTrim.run(String(SEED), String(SEED));
-      Q.convTrim.run(String(SEED), world.day - 180);
+      Q.convTrim.run(String(SEED), world.day - CONV_KEEP_DAYS);
       Q.gamePrune.run(String(SEED), String(SEED));
       db.exec("PRAGMA incremental_vacuum; VACUUM;");
     } else {
@@ -435,7 +478,7 @@ setInterval(() => {
 
   if (world.day !== prevDay) {
     prevDay = world.day;
-    regenRooms();
+    regenRooms(true);
     persistRooms();
     onNewDayServer();
   }
@@ -481,13 +524,14 @@ function viewSnapshot() {
     memoryTotal: world.memory.total || world.memory.slots.length,
     gamesCount: world.gamesCount || 0,
     latestGameId: world.latestGameId || 0,
+    quote: world.quote || null,
     agent: world.agent,
     mood: world.mood,
     weather: world.weather,
     windowEvent: world.windowEvent,
     era: world.era,
     memory: { slots: world.memory.slots, latestText: world.memory.latestText },
-    conversation: { bubble: world.conversation.bubble, log: world.conversation.log.slice(-10) },
+    conversation: { bubble: world.conversation.bubble }, // full log via /api/conversations
     gapgpt: !!(DIALOGUE_ON && GAP_KEY),
     fx: fxTail,
   });
@@ -512,6 +556,7 @@ const MIME = {
   ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
   ".png": "image/png",
@@ -605,6 +650,8 @@ const server = createServer(async (req, res) => {
     );
   }
   if (path === "/api/ledger") return sendJSON(res, JSON.stringify(Q.ledgerTail.all(String(SEED))));
+  if (path === "/api/daily") return sendJSON(res, JSON.stringify(Q.dailyList.all(String(SEED))));
+  if (path === "/api/quotes") return sendJSON(res, JSON.stringify(Q.quoteList.all(String(SEED))));
   if (path === "/api/conversations") {
     return sendJSON(
       res,
@@ -621,19 +668,48 @@ const server = createServer(async (req, res) => {
   }
   if (path === "/api/games") return sendJSON(res, JSON.stringify(Q.gameList.all(String(SEED)).map((g) => ({ id: g.id, title: g.title, createdDay: g.created_day, plays: g.plays }))));
 
-  const gm = path.match(/^\/games\/(\d{1,9})$/);
-  if (gm) {
-    const row = Q.gameHtml.get(String(SEED), Number(gm[1]));
+  const gapi = path.match(/^\/api\/games\/(\d{1,9})$/);
+  if (gapi) {
+    const row = Q.gameSpec.get(String(SEED), Number(gapi[1]));
     if (!row) {
       res.writeHead(404);
       return res.end();
     }
+    const spec = safeParse(row.spec, null);
+    return sendJSON(
+      res,
+      JSON.stringify({
+        id: Number(gapi[1]),
+        title: row.title,
+        createdDay: row.created_day,
+        plays: row.plays,
+        spec,
+        describe: spec ? describeSpec(spec) : "unknown",
+      }),
+    );
+  }
+
+  const gm = path.match(/^\/games\/(\d{1,9})$/);
+  if (gm) {
+    const row = Q.gameSpec.get(String(SEED), Number(gm[1]));
+    if (!row) {
+      res.writeHead(404);
+      return res.end();
+    }
+    const specJson = String(row.spec || "null").replace(/</g, "\\u003c");
+    const nonce = randomBytes(12).toString("base64");
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${(row.title || "game").replace(/[<>&]/g, "")}</title>
+<style>html,body{margin:0;height:100%;background:#05070a;overflow:hidden}#g{display:block;width:100vw;height:100vh}</style>
+</head><body><canvas id="g"></canvas>
+<script type="application/json" id="spec">${specJson}</script>
+<script nonce="${nonce}">${GAME_JS}</script>
+</body></html>`;
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-cache",
-      "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;",
+      "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'none'; img-src data:`,
     });
-    return res.end(row.html);
+    return res.end(html);
   }
 
   if (path === "/api/impression" && req.method === "POST") {
@@ -653,6 +729,7 @@ const server = createServer(async (req, res) => {
     if (coins > 0) {
       world.bank += coins;
       world.incomeToday += coins;
+      try { Q.dailyAdd.run(String(SEED), world.day, coins, 0); } catch { /* ignore */ }
       if (Math.random() < 0.04) ledger("view", coins, `${site.id} +${coins.toFixed(1)}`); // sample, not every beat
     }
     res.writeHead(200, { "Content-Type": "application/json" });

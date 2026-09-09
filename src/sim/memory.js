@@ -9,7 +9,7 @@
 // everything ever written lives in the SQLite `memories` table (server.mjs).
 // When `slots` overflows, the faintest is dropped from the working set but its
 // personality nudge is permanent and the row is kept in the DB.
-export const MEMORY_SLOTS = 48;
+export const MEMORY_SLOTS = 12;
 export const TRAITS = ["diligence", "sociability", "curiosity", "restlessness"];
 
 const TRAIT_MIN = 0.05;

@@ -11,8 +11,9 @@ import { OBJECTS } from "./objects.js";
 const FURNITURE = {
   desk:
     '<div class="furn" style="left:33%;width:46%;top:55%;height:3.5%;background:#5a4632"></div>' +
-    '<div class="furn monitor" style="left:39%;width:22%;top:38%;height:17%;background:#0a0a0a;box-shadow:inset 0 0 0 2px #000">' +
-    '<iframe class="ifr site-frame" title="monitor" sandbox="allow-scripts allow-popups allow-forms" referrerpolicy="no-referrer" loading="lazy"></iframe></div>',
+    '<div class="furn monitor" style="left:36%;width:28%;top:34%;height:21%;background:#0a0a0a;box-shadow:inset 0 0 0 2px #000">' +
+    '<iframe class="ifr site-frame" title="monitor" sandbox="allow-scripts allow-popups allow-forms" referrerpolicy="no-referrer" loading="lazy"></iframe>' +
+    '<span class="frame-cap site-cap"></span></div>',
   kitchen:
     '<div class="furn" style="left:9%;width:39%;top:52%;height:3%;background:#7d7d86"></div>' +
     '<div class="furn" style="left:9%;width:39%;top:55%;height:10%;background:#3a3a40"></div>',
@@ -40,26 +41,36 @@ export function objHtml(id) {
   return `<span class="obj" data-obj="${id}" title="${esc(o.label)}" style="left:${x}%;top:${y}%">${o.glyph}</span>`;
 }
 
-export function roomHtml(roomId, objects) {
-  const p = ROOMS[roomId].palette;
+export function roomStyle(roomId, style) {
+  const base = ROOMS[roomId];
+  const s = (style && style[roomId]) || {};
+  return {
+    name: typeof s.name === "string" && s.name ? s.name : base.name,
+    palette: { ...base.palette, ...(s.palette || {}) },
+  };
+}
+
+export function roomHtml(roomId, objects, style) {
+  const { name, palette: p } = roomStyle(roomId, style);
   return (
     `<div class="room" data-room="${roomId}" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent}">` +
     '<div class="wall"></div><div class="floor"></div>' +
     (FURNITURE[roomId] || "") +
     objects.map(objHtml).join("") +
-    `<span class="room-tag">${esc(ROOMS[roomId].name)}</span>` +
+    `<span class="room-tag">${esc(name)}</span>` +
     "</div>"
   );
 }
 
-export function roomDoc(seed, roomId, objects) {
+export function roomDoc(seed, roomId, objects, style) {
+  const { name, palette } = roomStyle(roomId, style);
   return {
     room: roomId,
-    name: ROOMS[roomId].name,
+    name,
     seed: String(seed),
-    palette: ROOMS[roomId].palette,
+    palette,
     objects: [...objects],
-    html: roomHtml(roomId, objects),
+    html: roomHtml(roomId, objects, style),
     updated: new Date().toISOString(),
   };
 }
@@ -67,6 +78,6 @@ export function roomDoc(seed, roomId, objects) {
 export function initDocs(world) {
   world.roomDocs = {};
   for (const rid of Object.keys(world.rooms)) {
-    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid]);
+    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle);
   }
 }

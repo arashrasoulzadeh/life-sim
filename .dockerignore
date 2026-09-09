@@ -1,0 +1,12 @@
+.git
+node_modules
+*.db
+*.db-shm
+*.db-wal
+.env
+sites.json
+config.js
+config.local.js
+llm.log
+worlds
+deploy

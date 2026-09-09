@@ -1,7 +1,7 @@
-// Browser viewer. The life runs on the server (server.mjs). This subscribes to
-// /stream, renders a 2x3 grid of the six rooms (or one zoomed room), rotates the
-// desk-monitor iframe through sites.json, loads the current AI-authored game in
-// the game room, and reports viewer attention so the life earns coins.
+// Browser viewer. The life runs on the server (server.mjs). Subscribes to
+// /stream, renders a 2x3 room grid (zoomable), rotates the desk-monitor iframe
+// through sites.json, loads the current game (a validated spec, never code),
+// reports viewer attention so the life earns coins, and offers read-only panels.
 
 import * as Audio from "./engine/audio.js";
 import { render, MUTE_RECT } from "./render/draw.js";
@@ -9,12 +9,14 @@ import { rainIntensity } from "./sim/weather.js";
 
 const ROOM_IDS = ["window", "kitchen", "desk", "couch", "bed", "game"];
 
-const canvas = document.getElementById("screen");
+const $ = (id) => document.getElementById(id);
+const canvas = $("screen");
 const ctx = canvas.getContext("2d");
-const roomsEl = document.getElementById("rooms");
-const zoomBtn = document.getElementById("zoombtn");
-const tbSeed = document.getElementById("tb-seed");
-const tbTok = document.getElementById("tb-tok");
+const roomsEl = $("rooms");
+const tbSeed = $("tb-seed");
+const tbTok = $("tb-tok");
+const tbQuote = $("tb-quote");
+const connDot = $("conn");
 
 let world = null;
 let audioReady = false;
@@ -33,8 +35,8 @@ const ui = {
   notice: null,
   zoom: safeLS("simyou_zoom") || null,
 };
+let convLog = [];
 
-// viewer id — coarse, only for the per-viewer income cap
 let viewerId = safeLS("simyou_viewer");
 if (!viewerId) {
   viewerId = Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -42,14 +44,14 @@ if (!viewerId) {
 }
 
 // ---------- rooms grid ----------
-const cells = {}; // roomId -> { cell, roomHost }
+const cells = {};
 for (const rid of ROOM_IDS) {
   const cell = document.createElement("div");
   cell.className = "cell";
   cell.dataset.room = rid;
   const host = document.createElement("div");
   cell.appendChild(host);
-  cells[rid] = { cell, roomHost: host };
+  cells[rid] = { cell, host };
   roomsEl.appendChild(cell);
 }
 let shownRoomsVersion = -1;
@@ -60,7 +62,8 @@ function applyZoomClass() {
   roomsEl.classList.toggle("grid", !z);
   roomsEl.classList.toggle("zoom", !!z);
   for (const rid of ROOM_IDS) cells[rid].cell.classList.toggle("active", rid === z);
-  zoomBtn.hidden = !z;
+  $("zoombtn").hidden = !z;
+  $("gamecodebtn").hidden = z !== "game" || !(world && world.latestGameId);
 }
 function setZoom(z) {
   ui.zoom = z || null;
@@ -77,7 +80,7 @@ async function refreshRooms() {
     roomOrder = Array.isArray(data.order) && data.order.length === 6 ? data.order : [...ROOM_IDS];
     for (const rid of ROOM_IDS) {
       const doc = data.rooms[rid];
-      if (doc && cells[rid].roomHost.innerHTML !== doc.html) cells[rid].roomHost.innerHTML = doc.html;
+      if (doc && cells[rid].host.innerHTML !== doc.html) cells[rid].host.innerHTML = doc.html;
       cells[rid].cell.style.order = roomOrder.indexOf(rid);
     }
     shownRoomsVersion = data.version;
@@ -87,7 +90,7 @@ async function refreshRooms() {
   }
 }
 
-// ---------- iframes (monitor + game) ----------
+// ---------- iframes: monitor + game ----------
 let sites = { rotateSeconds: 45, sites: [] };
 let siteIdx = 0;
 let siteRotateAt = 0;
@@ -96,38 +99,47 @@ let mountedGameId = -1;
 fetch("/api/sites")
   .then((r) => r.json())
   .then((s) => {
-    sites = s && Array.isArray(s.sites) ? s : sites;
+    if (s && Array.isArray(s.sites)) sites = s;
+    mountFrames();
   })
   .catch(() => {});
 
 function mountFrames() {
-  const siteFrame = cells.desk.roomHost.querySelector(".site-frame");
-  if (siteFrame && sites.sites.length && !siteFrame.src) {
-    siteFrame.src = sites.sites[siteIdx % sites.sites.length].url;
-    siteRotateAt = performance.now() + (sites.rotateSeconds || 45) * 1000;
+  const sf = cells.desk.host.querySelector(".site-frame");
+  const cap = cells.desk.host.querySelector(".site-cap");
+  if (sf) {
+    if (sites.sites.length) {
+      if (!sf.src) {
+        sf.src = sites.sites[siteIdx % sites.sites.length].url;
+        siteRotateAt = performance.now() + (sites.rotateSeconds || 45) * 1000;
+      }
+      if (cap) cap.textContent = sites.sites[siteIdx % sites.sites.length].label || "";
+    } else if (cap) {
+      cap.textContent = "no sites configured";
+    }
   }
-  const gameFrame = cells.game.roomHost.querySelector(".game-frame");
+  const gf = cells.game.host.querySelector(".game-frame");
   const gid = world?.latestGameId || 0;
-  if (gameFrame && gid && mountedGameId !== gid) {
-    gameFrame.src = `/games/${gid}`;
+  if (gf && gid && mountedGameId !== gid) {
+    gf.src = `/games/${gid}`;
     mountedGameId = gid;
   }
 }
-
 function rotateSite(now) {
-  if (!sites.sites.length || now < siteRotateAt) return;
+  if (sites.sites.length < 2 || now < siteRotateAt) return;
   siteIdx = (siteIdx + 1) % sites.sites.length;
-  const f = cells.desk.roomHost.querySelector(".site-frame");
-  if (f) f.src = sites.sites[siteIdx].url;
+  const sf = cells.desk.host.querySelector(".site-frame");
+  const cap = cells.desk.host.querySelector(".site-cap");
+  if (sf) sf.src = sites.sites[siteIdx].url;
+  if (cap) cap.textContent = sites.sites[siteIdx].label || "";
   siteRotateAt = now + (sites.rotateSeconds || 45) * 1000;
 }
 
-// ---------- attention / income heartbeat ----------
+// ---------- attention heartbeat ----------
 setInterval(() => {
-  if (document.visibilityState !== "visible" || !world) return;
-  if (!cells.desk.roomHost.querySelector(".site-frame")) return;
-  const site = sites.sites[siteIdx % (sites.sites.length || 1)];
-  if (!site) return;
+  if (document.visibilityState !== "visible" || !world || !sites.sites.length) return;
+  if (!cells.desk.host.querySelector(".site-frame")) return;
+  const site = sites.sites[siteIdx % sites.sites.length];
   fetch("/api/impression", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -136,9 +148,16 @@ setInterval(() => {
   }).catch(() => {});
 }, 10000);
 
-// ---------- stream ----------
+// ---------- stream + connection status ----------
+let es = null;
+function setConn(state) {
+  connDot.dataset.state = state; // ok | wait | off
+  connDot.title = state === "ok" ? "connected" : state === "wait" ? "reconnecting…" : "offline";
+}
 function connect() {
-  const es = new EventSource("/stream");
+  setConn("wait");
+  es = new EventSource("/stream");
+  es.onopen = () => setConn("ok");
   es.onmessage = (e) => {
     let snap;
     try {
@@ -159,10 +178,14 @@ function connect() {
     }
     if (snap.roomsVersion !== shownRoomsVersion) refreshRooms();
     if ((snap.latestGameId || 0) !== mountedGameId) mountFrames();
+    applyZoomClass();
   };
-  es.onerror = () => {};
+  es.onerror = () => setConn(es && es.readyState === 2 ? "off" : "wait");
 }
 connect();
+addEventListener("online", () => {
+  if (!es || es.readyState === 2) connect();
+});
 
 // ---------- render loop ----------
 function frame(now) {
@@ -172,7 +195,6 @@ function frame(now) {
     ctx.clearRect(0, 0, 512, 512);
     return;
   }
-
   const a = world.agent;
   if (!display.has) {
     display.x = a.x;
@@ -185,14 +207,13 @@ function frame(now) {
     display.x += (a.x - display.x) * 0.25;
     display.y += (a.y - display.y) * 0.25;
   }
-
   const w = {
     ...world,
     started: true,
     roomOrder,
     agent: { ...a, x: display.x, y: display.y },
+    conversation: { ...world.conversation, log: convLog },
   };
-
   if (audioReady && Audio.isReady()) {
     Audio.setRain(rainIntensity(world.weather.sky));
     Audio.update();
@@ -202,14 +223,72 @@ function frame(now) {
       moodPush = 1.5;
     }
   }
-
   tbSeed.textContent = `seed ${world.seed}`;
   tbTok.textContent = `◊ ${world.bank} coins`;
+  tbQuote.textContent = world.quote?.text ? world.quote.text : "a life that runs itself";
   if (ui.notice && performance.now() > ui.notice.until) ui.notice = null;
-
   render(ctx, w, ui);
 }
 requestAnimationFrame(frame);
+
+// ---------- panels ----------
+const aboutDlg = $("about");
+const econDlg = $("econ");
+const codeDlg = $("gamecode");
+
+$("about-btn").addEventListener("click", () => aboutDlg.showModal());
+$("about-close").addEventListener("click", () => aboutDlg.close());
+
+async function openEcon() {
+  econDlg.showModal();
+  const body = $("econ-body");
+  body.textContent = "loading…";
+  try {
+    const [daily, ledger] = await Promise.all([
+      fetch("/api/daily").then((r) => r.json()),
+      fetch("/api/ledger").then((r) => r.json()),
+    ]);
+    const rows = daily
+      .map((d) => `day ${d.day}   + ${Math.round(d.income)}   − ${Math.round(d.expense)}   = ${Math.round(d.income - d.expense) >= 0 ? "+" : ""}${Math.round(d.income - d.expense)}`)
+      .join("\n");
+    const led = ledger
+      .slice(0, 18)
+      .map((l) => `${l.ts.slice(5, 16).replace("T", " ")}  ${l.amount > 0 ? "+" : ""}${Math.round(l.amount)}  ${l.note}`)
+      .join("\n");
+    body.textContent = `BANK ${world ? world.bank : "?"} coins\n\nspend / income per day\n${rows || "  (nothing yet)"}\n\nrecent ledger\n${led || "  (nothing yet)"}`;
+  } catch {
+    body.textContent = "couldn't load";
+  }
+}
+$("econ-close").addEventListener("click", () => econDlg.close());
+
+async function openGameCode() {
+  if (!world?.latestGameId) return;
+  codeDlg.showModal();
+  const body = $("gamecode-body");
+  body.textContent = "loading…";
+  try {
+    const g = await fetch(`/api/games/${world.latestGameId}`).then((r) => r.json());
+    body.textContent =
+      `"${g.title}"  ·  day ${g.createdDay}  ·  ${g.plays} plays\n\n` +
+      `This game runs the built-in kernel below — the AI only chose the numbers.\n` +
+      `No custom code is ever stored or executed.\n\n` +
+      g.describe +
+      `\n\nraw spec:\n${JSON.stringify(g.spec, null, 2)}`;
+  } catch {
+    body.textContent = "couldn't load";
+  }
+}
+$("gamecodebtn").addEventListener("click", openGameCode);
+$("gamecode-close").addEventListener("click", () => codeDlg.close());
+
+async function loadConvLog() {
+  try {
+    convLog = await fetch("/api/conversations").then((r) => r.json());
+  } catch {
+    /* keep old */
+  }
+}
 
 // ---------- input ----------
 function ensureAudio() {
@@ -237,30 +316,37 @@ canvas.addEventListener("click", (e) => {
   if (!ui.zoom && cy < 448) {
     const col = cx < 256 ? 0 : 1;
     const row = Math.min(2, Math.floor(cy / (448 / 3)));
-    const idx = row * 2 + col;
-    if (roomOrder[idx]) setZoom(roomOrder[idx]);
+    const rid = roomOrder[row * 2 + col];
+    if (rid) setZoom(rid);
   }
 });
-
-zoomBtn.addEventListener("click", () => setZoom(null));
-
-const aboutDlg = document.getElementById("about");
-document.getElementById("about-btn").addEventListener("click", () => aboutDlg.showModal());
-document.getElementById("about-close").addEventListener("click", () => aboutDlg.close());
-aboutDlg.addEventListener("click", (e) => {
-  if (e.target === aboutDlg) aboutDlg.close(); // click the backdrop to dismiss
-});
+$("zoombtn").addEventListener("click", () => setZoom(null));
 
 addEventListener("keydown", (e) => {
-  if (aboutDlg.open) return; // let the dialog handle its own keys
+  if (aboutDlg.open || econDlg.open || codeDlg.open) return;
+  if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
   const k = e.key.toLowerCase();
   if (e.key === "Escape") return setZoom(null);
   if (k === "m") ui.showMemory = !ui.showMemory;
-  else if (k === "c") ui.showConversation = !ui.showConversation;
-  else if (k === "s") ui.showCard = !ui.showCard;
+  else if (k === "c") {
+    ui.showConversation = !ui.showConversation;
+    if (ui.showConversation) loadConvLog();
+  } else if (k === "s") ui.showCard = !ui.showCard;
   else if (k === "d") ui.debug = !ui.debug;
-  else if (k === "p") toggleMute();
+  else if (k === "p") openEcon();
+  else if (k === "x") toggleMute();
 });
+
+// refresh the open conversation panel occasionally
+setInterval(() => {
+  if (ui.showConversation) loadConvLog();
+}, 8000);
+
+// ---------- PWA ----------
+// register only over real HTTPS (skips dev / preview proxies that can't serve /sw.js)
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}
 
 function safeLS(k, v) {
   try {

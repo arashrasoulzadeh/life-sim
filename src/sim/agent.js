@@ -16,10 +16,20 @@ export function makePersonality(rng) {
   };
 }
 
+export function makeLook(rng) {
+  const shirts = ["#dfe3ea", "#7ad0a0", "#8fb8e8", "#e0b45c", "#c98bd0", "#e06a5c"];
+  return {
+    skin: rng.pick(["#f0d9b8", "#e6c9a0", "#d9b48a", "#c99a6f", "#a9764f"]),
+    shirt: rng.pick(shirts),
+    visor: "#3a4a8a",
+  };
+}
+
 export function makeAgent(rng) {
   const spot = ROOMS.bed.spot;
   return {
     personality: makePersonality(rng),
+    look: makeLook(rng),
     needs: { focus: 70, energy: 80, social: 55, curiosity: 60 },
     room: "bed",
     x: spot.x,
@@ -34,7 +44,77 @@ export function makeAgent(rng) {
     transitTotal: 1,
     workProgress: 0,
     lastThought: "waking up",
+    routine: null, // { steps:[{op,arg}], i, timer, ranDay }
+    routineSay: "",
   };
+}
+
+// --- playful routines: the AI combines a few of these in-place moves ---
+export const ROUTINE_OPS = ["say", "wait", "face", "hop", "wave", "spin", "nod", "sit"];
+
+function clampN(v, lo, hi, d) {
+  v = Number(v);
+  return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d;
+}
+
+// Returns true while a routine is performing (the utility AI is paused).
+export function stepRoutine(agent, dt) {
+  const r = agent.routine;
+  if (!r || r.done || r.i >= r.steps.length) return false;
+  if (agent.transit > 0 || agent.moving) return false;
+  r.timer = (r.timer ?? 0) - dt;
+  if (r.timer > 0) return true;
+
+  const step = r.steps[r.i++];
+  const arg = step.arg;
+  switch (step.op) {
+    case "say":
+      agent.routineSay = String(arg ?? "").slice(0, 60);
+      agent.lastThought = agent.routineSay || "…";
+      r.timer = 3.2;
+      break;
+    case "wait":
+      r.timer = clampN(arg, 1, 6, 2);
+      agent.lastThought = "…";
+      break;
+    case "face":
+      agent.facing = arg === "left" ? -1 : 1;
+      r.timer = 0.3;
+      break;
+    case "hop":
+      agent.gesture = "hop";
+      agent.lastThought = "*hop*";
+      r.timer = 0.7;
+      break;
+    case "wave":
+      agent.gesture = "wave";
+      agent.lastThought = "*waves*";
+      r.timer = 1.4;
+      break;
+    case "spin":
+      agent.gesture = "spin";
+      agent.lastThought = "*spins*";
+      r.timer = 1.2;
+      break;
+    case "nod":
+      agent.gesture = "nod";
+      agent.lastThought = "*nods*";
+      r.timer = 1;
+      break;
+    case "sit":
+      agent.gesture = "sit";
+      agent.lastThought = "sits a moment";
+      r.timer = 2.4;
+      break;
+    default:
+      r.timer = 0.4;
+  }
+  if (r.i >= r.steps.length) {
+    r.done = true;
+    agent.routineSay = "";
+    agent.gesture = null;
+  }
+  return true;
 }
 
 function personalityBoost(p, need) {

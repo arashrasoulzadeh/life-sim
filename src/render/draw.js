@@ -105,12 +105,12 @@ function drawGridAgent(ctx, w) {
   ctx.translate(ax, ay);
   ctx.scale(s, s);
   if (w.agent.transit > 0) ctx.globalAlpha = 0.55;
-  // tiny sprite
+  const look = w.agent.look || {};
   ctx.fillStyle = "rgba(0,0,0,0.25)";
   ctx.fillRect(-8, 1, 16, 4);
-  ctx.fillStyle = "#dfe3ea";
+  ctx.fillStyle = look.shirt || "#dfe3ea";
   ctx.fillRect(-5, -18, 10, 14);
-  ctx.fillStyle = "#f0d9b8";
+  ctx.fillStyle = look.skin || "#f0d9b8";
   ctx.fillRect(-4, -27, 8, 8);
   ctx.fillStyle = "#7a7f8a";
   ctx.fillRect(-4, -4, 3, 5);
@@ -236,23 +236,32 @@ function drawConversationOverlay(ctx, w) {
     ctx.fillText("no conversations yet", 40, 60);
   }
   let y = 62;
-  for (const e of log.slice(-7)) {
+  for (const e of log.slice(0, 6)) {
+    if (y > PLAYFIELD_H - 70) break;
     ctx.fillStyle = e.source === "gapgpt" ? "#7ad0a0" : e.source === "error" ? "#e06a5c" : "#8b93a3";
     ctx.font = "8px ui-monospace, Menlo, monospace";
     ctx.fillText(`day ${e.day} · ${e.phase} · ${e.source}`, 40, y);
-    ctx.fillStyle = "#c3c8d2";
+    ctx.fillStyle = "#d3d7df";
     ctx.font = "10px ui-monospace, Menlo, monospace";
-    for (const l of wrapText(e.line || "", 64).slice(0, 2)) {
+    for (const l of wrapText(e.line || "", 62).slice(0, 2)) {
       y += 12;
       ctx.fillText(l, 40, y);
     }
-    for (const c of e.changes || []) {
-      y += 11;
-      ctx.fillStyle = c[0] === "+" ? "#7ad0a0" : "#e0b45c";
+    if (e.reply) {
+      ctx.fillStyle = "#8b93a3";
+      ctx.font = "9px ui-monospace, Menlo, monospace";
+      for (const l of wrapText(e.reply, 70).slice(0, 3)) {
+        y += 11;
+        ctx.fillText("“" + l + "”", 46, y);
+      }
+    }
+    for (const c of (e.changes || []).slice(0, 4)) {
+      y += 10;
+      ctx.fillStyle = c[0] === "−" ? "#e0b45c" : "#7ad0a0";
       ctx.font = "8px ui-monospace, Menlo, monospace";
       ctx.fillText("   " + c, 40, y);
     }
-    y += 18;
+    y += 16;
   }
   ctx.fillStyle = "#5f6675";
   ctx.font = "9px ui-monospace, Menlo, monospace";
@@ -374,27 +383,34 @@ function drawMemoryWall(ctx, w) {
 
 function drawAgent(ctx, w) {
   const agent = w.agent;
+  const look = agent.look || {};
   const x = Math.round(agent.x);
   const base = Math.round(agent.y);
-  const f = agent.facing;
-  const posture = moodPosture(w.mood); // -1 slumped .. +1 light
+  let f = agent.facing;
+  const posture = moodPosture(w.mood);
   const now = performance.now();
 
-  // idle breathing / slump
   const idle = !agent.moving;
-  const breathe = idle ? Math.sin(now / (posture > 0 ? 500 : 900)) * (0.6 + posture * 0.5) : 0;
-  const slump = idle && posture < 0 ? -posture * 2 : 0;
+  const g = agent.gesture;
+  let breathe = idle ? Math.sin(now / (posture > 0 ? 500 : 900)) * (0.6 + posture * 0.5) : 0;
+  let slump = idle && posture < 0 ? -posture * 2 : 0;
+  let squash = 0;
+  if (g === "hop") breathe = -Math.abs(Math.sin(now / 90)) * 6;
+  else if (g === "sit") slump = 6;
+  else if (g === "nod") breathe = Math.sin(now / 130) * 2;
+  else if (g === "spin") f = Math.sin(now / 120) > 0 ? 1 : -1;
+  else if (g === "wave") squash = 0;
   const y = base + slump - Math.max(0, breathe);
 
   ctx.fillStyle = "rgba(0,0,0,0.25)";
   ctx.fillRect(x - 8, base + 1, 16, 4);
 
-  const bodyH = 14 - slump * 0.5;
-  ctx.fillStyle = "#dfe3ea";
+  const bodyH = 14 - slump * 0.4 - squash;
+  ctx.fillStyle = look.shirt || "#dfe3ea";
   ctx.fillRect(x - 5, y - 4 - bodyH, 10, bodyH);
-  ctx.fillStyle = "#f0d9b8";
+  ctx.fillStyle = look.skin || "#f0d9b8";
   ctx.fillRect(x - 4, y - 4 - bodyH - 8, 8, 8);
-  ctx.fillStyle = "#3a4a8a";
+  ctx.fillStyle = look.visor || "#3a4a8a";
   ctx.fillRect(x - 1 + f, y - 4 - bodyH - 5, 3, 2);
 
   const bob = agent.moving ? Math.floor(now / 120) % 2 : 0;
@@ -402,10 +418,29 @@ function drawAgent(ctx, w) {
   ctx.fillRect(x - 4, y - 4, 3, 4 + bob);
   ctx.fillRect(x + 1, y - 4, 3, 4 + (1 - bob));
 
-  if (idle && agent.action) {
+  if (g === "wave") {
+    ctx.fillStyle = look.skin || "#f0d9b8";
+    const wy = y - 4 - bodyH + Math.sin(now / 80) * 3;
+    ctx.fillRect(x + f * 5, wy - 4, 3, 6);
+  }
+
+  if (idle && (agent.action || g)) {
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     const p = (Math.sin(now / 240) + 1) / 2;
     ctx.fillRect(x + f * 8, y - 12 - bodyH - Math.round(p * 3), 3, 3);
+  }
+
+  if (agent.routineSay) {
+    const t = agent.routineSay.slice(0, 40);
+    ctx.font = "9px ui-monospace, Menlo, monospace";
+    const bw = ctx.measureText(t).width + 12;
+    const bx = Math.max(6, Math.min(W - bw - 6, x - bw / 2));
+    const by = y - 4 - bodyH - 24;
+    ctx.fillStyle = "rgba(8,10,14,0.92)";
+    ctx.fillRect(bx, by, bw, 14);
+    ctx.fillStyle = "#d3d7df";
+    ctx.textBaseline = "top";
+    ctx.fillText(t, bx + 6, by + 3);
   }
 }
 
