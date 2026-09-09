@@ -16,7 +16,8 @@ const canvas = $("screen");
 const ctx = canvas.getContext("2d");
 const roomsEl = $("rooms");
 const tbTag = $("tb-tag");
-const tbTok = $("tb-tok");
+const tbTokV = $("tb-tok").querySelector(".v");
+const tbLoveV = $("tb-love").querySelector(".v");
 const tbQuote = $("tb-quote");
 const connDot = $("conn");
 
@@ -301,12 +302,14 @@ function frame(now) {
   if (gbtn) {
     const unread = world.notesUnread || 0;
     gbtn.textContent = unread ? `guestbook (${unread})` : "guestbook";
+    gbtn.classList.toggle("badge", unread > 0);
   }
   const whoEl = $("tb-who");
   if (whoEl && world.household) {
     const h = world.household;
-    whoEl.textContent = `${h.you?.name || "?"} & ${h.spouse?.name || "?"} ${h.surname || ""} · ♥ ${world.togetherness ?? "?"}%`;
+    whoEl.textContent = `${h.you?.name || "?"} & ${h.spouse?.name || "?"} ${h.surname || ""}`.trim();
   }
+  if (tbLoveV) tbLoveV.textContent = `${world.togetherness ?? "—"}%`;
   const dayEl = $("tb-day");
   if (dayEl && world.rhythm) {
     let tag = `${world.rhythm.dowName || ""}`;
@@ -317,7 +320,7 @@ function frame(now) {
     dayEl.textContent = tag;
     dayEl.style.color = world.finances && world.finances.broke ? "#e06a5c" : "";
   }
-  tbTok.textContent = `◊ ${world.bank} coins`;
+  if (tbTokV) tbTokV.textContent = String(world.bank);
   tbQuote.textContent = world.quote?.text ? world.quote.text : "a life that runs itself";
   if (ui.notice && performance.now() > ui.notice.until) ui.notice = null;
   render(ctx, w, ui);

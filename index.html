@@ -17,27 +17,50 @@
         gap: 8px; padding: 14px 0 36px; box-sizing: border-box;
       }
       #topbar {
-        display: flex; align-items: center; gap: 12px;
+        display: flex; flex-direction: column; gap: 6px;
         width: min(90vmin, 768px); font-size: 12px; letter-spacing: 0.04em;
       }
-      #topbar b { color: #e6e9f0; letter-spacing: 0.12em; }
+      #topbar .bar { display: flex; align-items: center; gap: 10px; min-height: 24px; }
+      #topbar b { color: #e6e9f0; letter-spacing: 0.14em; font-size: 12px; }
       #topbar .grow { flex: 1; }
-      #tb-seed { color: #8fb8e8; }
-      #tb-tok { color: #e0b45c; }
+
       #conn { width: 8px; height: 8px; border-radius: 50%; background: #e0b45c; flex: none; }
       #conn[data-state="ok"] { background: #7ad0a0; }
       #conn[data-state="wait"] { background: #e0b45c; }
       #conn[data-state="off"] { background: #e06a5c; }
-      #topbar button {
-        font: inherit; font-size: 11px; color: #c8ccd4;
-        background: #171b22; border: 1px solid #2b323d; border-radius: 4px;
-        padding: 3px 9px; cursor: pointer;
+
+      #tb-who { color: #9aa3b3; font-size: 11px; }
+
+      /* live stats — right side of row 1 */
+      #topbar .stats { display: flex; align-items: center; gap: 4px; }
+      #topbar .stat {
+        display: inline-flex; align-items: baseline; gap: 4px;
+        padding: 2px 8px; border-radius: 4px; background: #14181f;
+        border: 1px solid #232a33; font-size: 11px; color: #aab2be; white-space: nowrap;
       }
-      #topbar button:hover { background: #1f2530; }
+      #topbar .stat .v { color: #e6e9f0; font-variant-numeric: tabular-nums; }
+      #tb-tok { color: #e0b45c; }
+      #tb-tok .v { color: #f0c674; }
+      #tb-love { color: #d98bb0; }
+      #tb-love .v { color: #f0a8ca; }
+      #tb-tag { color: #5c6673; background: transparent; border-color: transparent; padding: 2px 2px; }
+
+      /* action rows */
+      #topbar .grp { display: flex; align-items: center; gap: 4px; }
+      #topbar .grp + .grp { margin-left: 8px; padding-left: 10px; border-left: 1px solid #232a33; }
+      #topbar button {
+        font: inherit; font-size: 11px; color: #c1c7d0;
+        background: #171b22; border: 1px solid #2b323d; border-radius: 4px;
+        padding: 4px 10px; cursor: pointer; transition: background 0.12s, border-color 0.12s;
+      }
+      #topbar button:hover { background: #212734; border-color: #3a4350; color: #e6e9f0; }
       #topbar button[hidden] { display: none; }
+      #topbar button.badge { color: #f0a8ca; border-color: #5a3d4c; }
+      #about-btn { padding: 4px 8px; color: #7f8a9c; }
+
       #tb-quote {
         color: #6b7686; font-size: 11px; font-style: italic;
-        max-width: 46%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+        overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding-left: 2px;
       }
 
       #stage {
@@ -113,24 +136,38 @@
   </head>
   <body>
     <div id="topbar">
-      <b>SIMYOU</b>
-      <span id="conn" data-state="wait" title="connecting…"></span>
-      <span id="tb-who" title="the couple who live here"></span>
-      <span id="tb-tag" title="opaque id — the real seed stays on the server">—</span>
-      <span id="tb-tok">◊ 0</span>
-      <span class="grow"></span>
-      <span id="tb-quote">a life that runs itself</span>
-      <button id="followbtn" hidden data-on="0">follow</button>
-      <button id="gamecodebtn" hidden>game code</button>
-      <button id="zoombtn" hidden>⤢ grid</button>
-      <span id="tb-season" title="the world outside"></span>
-      <span id="tb-day" title="day of the week"></span>
-      <button id="mem-btn">memory</button>
-      <button id="vote-btn">vote</button>
-      <button id="journal-btn">journal</button>
-      <button id="shop-btn">shop</button>
-      <button id="guest-btn">guestbook</button>
-      <button id="about-btn">what is this?</button>
+      <div class="bar">
+        <span id="conn" data-state="wait" title="connecting…"></span>
+        <b>SIMYOU</b>
+        <span id="tb-who" title="the couple who live here"></span>
+        <span class="grow"></span>
+        <span class="stats">
+          <span class="stat" id="tb-tok" title="coins in the bank">◊ <span class="v">0</span></span>
+          <span class="stat" id="tb-love" title="how close the two are">♥ <span class="v">—</span></span>
+          <span class="stat" id="tb-day" title="day of the week"></span>
+          <span class="stat" id="tb-season" title="the season outside"></span>
+          <span class="stat" id="tb-tag" title="opaque id — the real seed stays on the server">—</span>
+        </span>
+      </div>
+      <div class="bar">
+        <span class="grp" id="ctx-actions">
+          <button id="followbtn" hidden data-on="0">follow</button>
+          <button id="gamecodebtn" hidden>game code</button>
+          <button id="zoombtn" hidden>⤢ grid</button>
+        </span>
+        <span class="grow"></span>
+        <span class="grp">
+          <button id="mem-btn">memory</button>
+          <button id="journal-btn">journal</button>
+          <button id="vote-btn">vote</button>
+          <button id="guest-btn">guestbook</button>
+          <button id="shop-btn">shop</button>
+        </span>
+        <span class="grp">
+          <button id="about-btn" title="what is this?">?</button>
+        </span>
+      </div>
+      <div id="tb-quote">a life that runs itself</div>
     </div>
 
     <div id="stage">

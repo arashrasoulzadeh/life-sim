@@ -7,6 +7,7 @@ import { OBJECTS } from "./objects.js";
 export const RENT = 55; // charged every RENT_EVERY days
 export const RENT_EVERY = 7;
 export const RENT_GRACE_DAY = 8; // no rent before this — a new life finds its feet
+export const DAILY_REWARD = 10; // a small stipend paid every morning
 const BASE_UPKEEP = 2.5; // heat / water / the basics, per day
 const APPLIANCE_DRAW = 1.2; // per owned appliance, per day
 const CAT_FOOD = 2; // per day, if there's a cat
@@ -33,6 +34,9 @@ export function freshFinances() {
 export function chargeDay(w) {
   w.finances = w.finances || freshFinances();
   const lines = [];
+
+  w.bank += DAILY_REWARD;
+  lines.push({ kind: "reward", amount: DAILY_REWARD, note: "daily reward" });
 
   const up = Math.round(upkeepPerDay(w) * 100) / 100;
   w.bank -= up;

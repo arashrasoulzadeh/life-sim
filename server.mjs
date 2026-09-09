@@ -566,14 +566,17 @@ function onNewDayServer() {
   // rent + upkeep charged at the day rollover (produced by the sim)
   if (Array.isArray(world._dayCharges)) {
     let exp = 0;
+    let inc = 0;
     for (const c of world._dayCharges) {
       if (!c.amount) continue;
       ledger(c.kind, c.amount, c.note);
       if (c.amount < 0) exp += -c.amount;
+      else inc += c.amount;
     }
-    if (exp) {
+    if (exp || inc) {
       world.expensesToday += exp;
-      try { Q.dailyAdd.run(String(SEED), world.day, 0, exp); } catch { /* ignore */ }
+      world.incomeToday += inc;
+      try { Q.dailyAdd.run(String(SEED), world.day, inc, exp); } catch { /* ignore */ }
     }
     persistBank();
     world._dayCharges = null;
@@ -1148,7 +1151,8 @@ const server = createServer(async (req, res) => {
     const daySum = Q.imprDaySum.get(String(SEED), world.day, viewer)?.s || 0;
     const room = Math.max(0, VIEWER_DAY_SECONDS_CAP - daySum);
     const toCredit = Math.min(seconds, room);
-    const coins = (site.ratePerVisitorDay || 60) * (toCredit / REAL_SECS_PER_DAY);
+    const INCOME_MULT = 2; // viewer income doubled
+    const coins = INCOME_MULT * (site.ratePerVisitorDay || 60) * (toCredit / REAL_SECS_PER_DAY);
     Q.imprUpsert.run(String(SEED), world.day, viewer, site.id, seconds, toCredit);
     if (coins > 0) {
       world.bank += coins;
