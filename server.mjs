@@ -307,6 +307,9 @@ function restore(seed, json) {
   if (!w.plants) w.plants = {};
   if (!w.rhythm || typeof w.rhythm !== "object") w.rhythm = { dow: 0, dowName: "Mon", weekend: false, badDay: false, weekStyle: "" };
   if (!w.pet || typeof w.pet !== "object") w.pet = createWorld(seed).pet;
+  if (!w.partner || typeof w.partner !== "object") { const fresh = createWorld(seed); w.partner = fresh.partner; w.household = w.household || fresh.household; if (!w.agent.name) { w.agent.name = fresh.agent.name; w.agent.gender = fresh.agent.gender; w.agent.look = w.agent.look || fresh.agent.look; } }
+  if (typeof w.togetherness !== "number") w.togetherness = 55;
+  if (!w.household) w.household = createWorld(seed).household;
   if (!w.finances || typeof w.finances !== "object") w.finances = { broke: false, brokeSince: 0, lastRentDay: w.day, missedRent: 0 };
   if (!w.wear || typeof w.wear !== "object") w.wear = {};
   if (!w.psyche || typeof w.psyche !== "object") w.psyche = { conflictDay: 0, lean: "even", leanUntil: 0, argument: null };
@@ -794,6 +797,17 @@ function viewSnapshot() {
     plants: world.plants || {},
     rhythm: world.rhythm || null,
     pet: world.pet ? { kind: world.pet.kind, name: world.pet.name, room: world.pet.room, x: world.pet.x, y: world.pet.y, facing: world.pet.facing, state: world.pet.state, bond: world.pet.bond } : null,
+    partner: world.partner
+      ? {
+          name: world.partner.name, gender: world.partner.gender, look: world.partner.look,
+          room: world.partner.room, x: world.partner.x, y: world.partner.y, tx: world.partner.tx, ty: world.partner.ty,
+          facing: world.partner.facing, transit: world.partner.transit, moving: world.partner.moving,
+          action: world.partner.action, lastThought: world.partner.lastThought, micro: world.partner.micro || null,
+          routineSay: world.partner.routineSay || "", gesture: world.partner.gesture || null,
+        }
+      : null,
+    household: world.household || null,
+    togetherness: Math.round(world.togetherness ?? 50),
     finances: world.finances
       ? { broke: !!world.finances.broke, missedRent: world.finances.missedRent || 0, line: financeLine(world) }
       : null,

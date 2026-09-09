@@ -26,17 +26,20 @@ export function makeLook(rng) {
   };
 }
 
-export function makeAgent(rng) {
+export function makeAgent(rng, opts = {}) {
   const spot = ROOMS.bed.spot;
+  const off = opts.offset || 0;
   return {
     personality: makePersonality(rng),
-    look: makeLook(rng),
+    look: opts.look || makeLook(rng),
+    name: opts.name || "",
+    gender: opts.gender || "n",
     skills: freshSkills(),
     needs: { focus: 70, energy: 80, social: 55, curiosity: 60 },
     room: "bed",
-    x: spot.x,
+    x: spot.x + off,
     y: spot.y,
-    tx: spot.x,
+    tx: spot.x + off,
     ty: spot.y,
     facing: 1,
     moving: false,
@@ -159,6 +162,11 @@ export function scoreActions(agent, env, rng) {
       if (delta > 0) relief += pressure(needs[need]) * delta * personalityBoost(personality, need);
     }
     score *= 0.15 + relief;
+
+    // drawn toward wherever the spouse is (they share the day)
+    if (env.partnerRoom && action.room === env.partnerRoom && action.id !== "work") {
+      score *= 1.3 + (env.togetherWant || 0);
+    }
 
     // context modifiers
     if (action.id === "sleep") score *= isNight ? 3.2 : 0.15;

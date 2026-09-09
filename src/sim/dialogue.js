@@ -13,6 +13,7 @@ import { GOAL_METRICS, makeGoal, goalFrac } from "./goals.js";
 import { setWeekStyle } from "./rhythm.js";
 import { namePet, petLabel } from "./pet.js";
 import { financeLine, economyMods } from "./economy.js";
+import { spouseWord } from "./people.js";
 import { psycheLine, isConflictToday, resolveLean } from "./psyche.js";
 import { canWrite, cleanWriting, writingPrompt } from "./writing.js";
 import { isBroken, repair, repairCost, wearPct } from "./wear.js";
@@ -75,6 +76,9 @@ export function buildPrompt(w, phase, ctx = {}) {
   const voteLine = ctx.voteResult
     ? `Yesterday viewers voted for you to: ${VOTE_LABELS[ctx.voteResult.choice] || ctx.voteResult.choice} (${ctx.voteResult.count} votes). You can heed it or not.`
     : "";
+  const hh = w.household || {};
+  const spouseName = w.partner?.name || hh.spouse?.name || "your spouse";
+  const homeLine = `You are ${hh.you?.name || "you"} ${hh.surname || ""}. You live here with ${spouseName}, your ${spouseWord(w.partner?.gender || hh.spouse?.gender)}. Togetherness ${Math.round(w.togetherness ?? 50)}% (they're in the ${w.partner?.room || "flat"} now). Speak as "we" where it fits.`;
   const moneyLine = `Money: ${financeLine(w)}.`;
   const conflictLine = psycheLine(w);
   const worn = [];
@@ -146,6 +150,7 @@ export function buildPrompt(w, phase, ctx = {}) {
     `Appearance: skin ${look.skin}, shirt ${look.shirt}, visor ${look.visor}.`,
     `Mood ${w.mood.valence.toFixed(2)}. Reputation ${Math.round(w.reputation)}/100. Weather ${w.weather.sky}. Season: ${w.outside?.season || "spring"} (neighbour lately: ${w.outside?.neighbour || "—"}).`,
     `Skills: writing ${Math.round(sk.writing || 0)}, coding ${Math.round(sk.coding || 0)}, tinkering ${Math.round(sk.tinkering || 0)}, talking ${Math.round(sk.talking || 0)}.`,
+    homeLine,
     goalLine,
     rhythmLine,
     petLine,

@@ -46,7 +46,9 @@ export function render(ctx, w, ui) {
       if (view === "bed") drawMemoryWall(ctx, w);
     }
     if (w.pet && w.pet.room === view && !inHall) drawPet(ctx, w);
+    if (w.partner && w.partner.room === view && w.partner.transit <= 0 && !inHall) drawAgent(ctx, w, w.partner);
     if (inHall || (w.agent.room === view && w.agent.transit <= 0)) drawAgent(ctx, w);
+    if (w.partner && w.partner.transit > 0 && w.partner.room === view) drawAgent(ctx, w, w.partner);
     drawNightTint(ctx, w);
     drawSeasonTint(ctx, w);
     if (w.era.tint) {
@@ -114,28 +116,38 @@ function agentCellCenterX(w) {
 }
 
 function drawGridAgent(ctx, w) {
-  const i = agentCellIndex(w);
-  if (i < 0) return;
-  const r = cellRect(i);
-  // highlight the agent's cell
-  ctx.strokeStyle = "rgba(255,255,255,0.18)";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+  gridPerson(ctx, w, w.agent, true);
+  if (w.partner) gridPerson(ctx, w, w.partner, false);
+}
 
-  const ax = r.x + (w.agent.x / W) * r.w;
-  const ay = r.y + (w.agent.y / PLAYFIELD_H) * r.h;
-  const s = 0.5;
+function gridPerson(ctx, w, agent, highlight) {
+  const idx = (w.roomOrder || []).indexOf(agent.room);
+  if (idx < 0) return;
+  const r = cellRect(idx);
+  if (highlight) {
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+  }
+  const ax = r.x + (agent.x / W) * r.w;
+  const ay = r.y + (agent.y / PLAYFIELD_H) * r.h;
   ctx.save();
   ctx.translate(ax, ay);
-  ctx.scale(s, s);
-  if (w.agent.transit > 0) ctx.globalAlpha = 0.55;
-  const look = w.agent.look || {};
+  ctx.scale(0.5, 0.5);
+  if (agent.transit > 0) ctx.globalAlpha = 0.55;
+  const look = agent.look || {};
   ctx.fillStyle = "rgba(0,0,0,0.25)";
   ctx.fillRect(-8, 1, 16, 4);
   ctx.fillStyle = look.shirt || "#dfe3ea";
   ctx.fillRect(-5, -18, 10, 14);
   ctx.fillStyle = look.skin || "#f0d9b8";
   ctx.fillRect(-4, -27, 8, 8);
+  ctx.fillStyle = look.hair || "#221c18";
+  ctx.fillRect(-4, -28, 8, 3);
+  if (look.long) {
+    ctx.fillRect(-5, -28, 2, 8);
+    ctx.fillRect(3, -28, 2, 8);
+  }
   ctx.fillStyle = "#7a7f8a";
   ctx.fillRect(-4, -4, 3, 5);
   ctx.fillRect(1, -4, 3, 5);
@@ -406,8 +418,7 @@ function drawMemoryWall(ctx, w) {
   }
 }
 
-function drawAgent(ctx, w) {
-  const agent = w.agent;
+function drawAgent(ctx, w, agent = w.agent) {
   const look = agent.look || {};
   const x = Math.round(agent.x);
   const base = Math.round(agent.y);
@@ -435,6 +446,13 @@ function drawAgent(ctx, w) {
   ctx.fillRect(x - 5, y - 4 - bodyH, 10, bodyH);
   ctx.fillStyle = look.skin || "#f0d9b8";
   ctx.fillRect(x - 4, y - 4 - bodyH - 8, 8, 8);
+  // hair
+  ctx.fillStyle = look.hair || "#221c18";
+  ctx.fillRect(x - 4, y - 4 - bodyH - 9, 8, 3);
+  if (look.long) {
+    ctx.fillRect(x - 5, y - 4 - bodyH - 9, 2, 9);
+    ctx.fillRect(x + 3, y - 4 - bodyH - 9, 2, 9);
+  }
   ctx.fillStyle = look.visor || "#3a4a8a";
   ctx.fillRect(x - 1 + f, y - 4 - bodyH - 5, 3, 2);
 

@@ -15,6 +15,8 @@ import { tickPlants, plantsNewDay, thirstyIn, water as waterPlant } from "./plan
 import { weaveDream } from "./dreams.js";
 import { freshRhythm, stepRhythm, rollRhythm, rhythmMods } from "./rhythm.js";
 import { freshPet, stepPet, petBond } from "./pet.js";
+import { makeCouple } from "./people.js";
+import { makePartner, stepPartner, stepTogetherness } from "./partner.js";
 import { freshFinances, chargeDay, economyMods } from "./economy.js";
 import { ensureWear, tickWear, conditionFactor, tinkerFix } from "./wear.js";
 import { freshPsyche, rollPsyche, psycheMods } from "./psyche.js";
@@ -45,11 +47,24 @@ function freshTally(day) {
 
 export function createWorld(seed) {
   const rng = new Rng(seed);
+  const couple = makeCouple(rng);
+  const you = couple.primary === "woman" ? couple.woman : couple.man;
+  const them = couple.primary === "woman" ? couple.man : couple.woman;
+  const primary = makeAgent(rng, { name: you.name, gender: you.gender, look: you.look });
+  const partner = makePartner(rng, them);
   return {
     rng,
     seed,
     started: false,
-    agent: makeAgent(rng),
+    agent: primary,
+    partner,
+    household: {
+      surname: couple.surname,
+      you: { name: you.name, gender: you.gender },
+      spouse: { name: them.name, gender: them.gender },
+      marriedDay: 1,
+    },
+    togetherness: 55,
     memory: freshMemory(),
     mood: freshMood(),
     weather: freshWeather(rng),
@@ -151,6 +166,8 @@ export function tick(w, dt) {
   tickPlants(w, dt, DAY_LENGTH);
   stepRhythm(w);
   stepPet(w, dt, w.rng);
+  stepPartner(w, dt, w.rng);
+  stepTogetherness(w, dt);
   tickWear(w, dt, DAY_LENGTH);
   if (w.isNight && w.agent.action && w.agent.action.id === "sleep") w.slept = true;
 
@@ -234,6 +251,8 @@ export function tick(w, dt) {
         work: rm.work * em.work * pm.work,
         play: rm.play * (pm.ease || 1),
       },
+      partnerRoom: w.partner ? w.partner.room : null,
+      togetherWant: Math.max(0, (50 - (w.togetherness ?? 50)) / 55),
       voteBias: w.voteBias || null,
       onWater: (room) => {
         const label = waterPlant(w, room);

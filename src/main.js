@@ -28,6 +28,7 @@ let prevAgentRoom = null;
 let lastTs = performance.now();
 const display = { x: 256, y: 300, has: false };
 let petDisplay = { room: null, x: 350, y: 330 };
+let mateDisplay = { room: null, x: 350, y: 330 };
 
 const ui = {
   debug: new URLSearchParams(location.search).has("debug"),
@@ -254,12 +255,33 @@ function frame(now) {
     pet = { ...pet, x: petDisplay.x, y: petDisplay.y };
   }
 
+  // glide the spouse
+  let partner = world.partner;
+  if (partner) {
+    const ptx = partner.transit > 0 ? partner.x : partner.tx ?? partner.x;
+    const pty = partner.transit > 0 ? partner.y : partner.ty ?? partner.y;
+    if (mateDisplay.room !== partner.room) {
+      mateDisplay = { room: partner.room, x: ptx, y: pty };
+    } else {
+      const mdx = ptx - mateDisplay.x;
+      const mdy = pty - mateDisplay.y;
+      const md = Math.hypot(mdx, mdy);
+      if (md > 1) {
+        const s = Math.min(md, 60 * dt);
+        mateDisplay.x += (mdx / md) * s;
+        mateDisplay.y += (mdy / md) * s;
+      }
+    }
+    partner = { ...partner, x: mateDisplay.x, y: mateDisplay.y };
+  }
+
   const w = {
     ...world,
     started: true,
     roomOrder,
     agent: { ...a, x: display.x, y: display.y },
     pet,
+    partner,
     conversation: { ...world.conversation, log: convLog },
   };
   if (audioReady && Audio.isReady()) {
@@ -279,6 +301,11 @@ function frame(now) {
   if (gbtn) {
     const unread = world.notesUnread || 0;
     gbtn.textContent = unread ? `guestbook (${unread})` : "guestbook";
+  }
+  const whoEl = $("tb-who");
+  if (whoEl && world.household) {
+    const h = world.household;
+    whoEl.textContent = `${h.you?.name || "?"} & ${h.spouse?.name || "?"} ${h.surname || ""} · ♥ ${world.togetherness ?? "?"}%`;
   }
   const dayEl = $("tb-day");
   if (dayEl && world.rhythm) {
