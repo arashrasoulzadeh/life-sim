@@ -139,8 +139,8 @@ function mountFrames() {
   }
   const gf = cells.game.host.querySelector(".game-frame");
   const gid = world?.latestGameId || 0;
-  if (gf && gid && mountedGameId !== gid) {
-    gf.src = `/games/${gid}`;
+  if (gf && mountedGameId !== gid) {
+    gf.src = `/games/${gid}`; // gid 0 → a valid "no game here yet" page, never blank
     mountedGameId = gid;
   }
 }
@@ -451,7 +451,7 @@ async function openGameCode() {
     body.innerHTML = `
       <div class="gc-meta"><b>${esc(g.title)}</b> · day ${g.createdDay} · ${g.plays} plays</div>
       <iframe class="gc-preview" src="/games/${id}" title="game preview"
-              sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy"></iframe>
+              sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
       <div class="gc-note">${esc(g.describe || "")}<br>The AI only picks a built-in kernel and its numbers — no custom code is ever stored or run.</div>
       <pre class="gc-spec">${esc(JSON.stringify(g.spec, null, 2))}</pre>`;
   } catch {

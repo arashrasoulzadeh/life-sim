@@ -34,7 +34,7 @@ const FURNITURE = {
     '<div class="furn" style="left:35%;width:9%;top:53%;height:4.5%;background:#e8e8ee"></div>',
   game:
     '<div class="furn" style="left:30%;width:40%;top:18%;height:27%;background:#0a0a0a;box-shadow:inset 0 0 0 2px #000">' +
-    '<iframe class="ifr game-frame" title="game" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy"></iframe></div>' +
+    '<iframe class="ifr game-frame" title="game" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe></div>' +
     '<div class="furn" style="left:30%;width:40%;top:45%;height:2.5%;background:#3a4a40"></div>',
 };
 

@@ -1087,14 +1087,13 @@ const server = createServer(async (req, res) => {
 
   const gm = path.match(/^\/games\/(\d{1,9})$/);
   if (gm) {
+    // id 0 or a missing row still serves a valid page — the runtime shows a
+    // "no game here yet" screen rather than the frame going blank / 404.
     const row = Q.gameSpec.get(String(SEED), Number(gm[1]));
-    if (!row) {
-      res.writeHead(404);
-      return res.end();
-    }
-    const specJson = String(row.spec || "null").replace(/</g, "\\u003c");
-    const nonce = randomBytes(12).toString("base64");
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${(row.title || "game").replace(/[<>&]/g, "")}</title>
+    const title = row ? String(row.title || "game").replace(/[<>&]/g, "") : "game";
+    const specJson = String((row && row.spec) || "null").replace(/</g, "\\u003c");
+    const nonce = randomBytes(16).toString("hex"); // hex — always a valid CSP nonce token
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
 <style>html,body{margin:0;height:100%;background:#05070a;overflow:hidden}#g{display:block;width:100vw;height:100vh}</style>
 </head><body><canvas id="g"></canvas>
 <script type="application/json" id="spec">${specJson}</script>
@@ -1102,7 +1101,7 @@ const server = createServer(async (req, res) => {
 </body></html>`;
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-store",
       "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'none'; img-src data:`,
     });
     return res.end(html);
