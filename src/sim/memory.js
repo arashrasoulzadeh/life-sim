@@ -9,7 +9,8 @@
 // everything ever written lives in the SQLite `memories` table (server.mjs).
 // When `slots` overflows, the faintest is dropped from the working set but its
 // personality nudge is permanent and the row is kept in the DB.
-export const MEMORY_SLOTS = 12;
+export const MEMORY_SLOTS = 1024; // working set; at the cap it is compacted (below)
+export const MEMORY_COMPACT_TO = 768; // keep this many after a compaction
 export const TRAITS = ["diligence", "sociability", "curiosity", "restlessness"];
 
 const TRAIT_MIN = 0.05;
@@ -168,14 +169,7 @@ export function writeMemory(mem, personality, rng, day) {
 
   mem.slots.push(record);
   mem.overflow = mem.overflow || [];
-  while (mem.slots.length > MEMORY_SLOTS) {
-    // drop the faintest from the working set — the nudge stays, the DB keeps the row
-    let faint = 0;
-    for (let i = 1; i < mem.slots.length; i++) {
-      if (mem.slots[i].weight < mem.slots[faint].weight) faint = i;
-    }
-    mem.overflow.push(mem.slots.splice(faint, 1)[0]);
-  }
+  compactMemory(mem); // fold the faintest down if we've hit the 1024 cap
 
   mem.latestText = `wrote: ${seed.text}`;
   mem.lastWrittenDay = day.day;
@@ -186,12 +180,49 @@ export function writeMemory(mem, personality, rng, day) {
 // deleted — the server consolidates dormant rows into digests.
 export function ageMemory(mem) {
   for (const s of mem.slots) s.weight = Math.max(0, s.weight - 0.045);
+  compactMemory(mem);
+}
+
+// When the working set hits the cap, fold the faintest ones down into a single
+// summarised memory. The originals stay in `overflow` (the server flushes them
+// to SQLite, so nothing is ever lost) — only the in-RAM set shrinks.
+export function compactMemory(mem) {
   mem.overflow = mem.overflow || [];
-  while (mem.slots.length > MEMORY_SLOTS) {
-    let faint = 0;
-    for (let i = 1; i < mem.slots.length; i++) {
-      if (mem.slots[i].weight < mem.slots[faint].weight) faint = i;
-    }
-    mem.overflow.push(mem.slots.splice(faint, 1)[0]);
+  if (mem.slots.length < MEMORY_SLOTS) return null;
+
+  // keep the strongest MEMORY_COMPACT_TO - 1, summarise the rest
+  const ordered = [...mem.slots].sort((a, b) => b.weight - a.weight);
+  const keep = ordered.slice(0, MEMORY_COMPACT_TO - 1);
+  const fold = ordered.slice(MEMORY_COMPACT_TO - 1);
+  if (!fold.length) return null;
+
+  const byTrait = {};
+  let dayLo = Infinity;
+  let dayHi = 0;
+  for (const s of fold) {
+    byTrait[s.trait] = (byTrait[s.trait] || 0) + (s.dir > 0 ? 1 : -1);
+    dayLo = Math.min(dayLo, s.bornDay || 0);
+    dayHi = Math.max(dayHi, s.bornDay || 0);
+    mem.overflow.push(s);
   }
+  const leaning = Object.entries(byTrait)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .slice(0, 2)
+    .map(([t, n]) => `${t} ${n >= 0 ? "+" : "−"}`)
+    .join(", ");
+
+  const summary = {
+    id: mem.nextId++,
+    kind: "summary",
+    text: `Days ${dayLo}–${dayHi}: ${fold.length} smaller memories, settling toward ${leaning || "no strong lean"}.`,
+    trait: fold[0].trait,
+    dir: 1,
+    mag: 0,
+    weight: 1.6,
+    bornDay: dayHi,
+    summarised: fold.length,
+  };
+  mem.slots = [...keep, summary];
+  mem.latestText = `compacted ${fold.length} memories`;
+  return summary;
 }

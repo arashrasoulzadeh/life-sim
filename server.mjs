@@ -811,7 +811,12 @@ function viewSnapshot() {
     weather: world.weather,
     windowEvent: world.windowEvent,
     era: world.era,
-    memory: { slots: world.memory.slots, latestText: world.memory.latestText },
+    // only the strongest handful travels on the wire; the full history is /api/memories
+    memory: {
+      slots: [...world.memory.slots].sort((a, b) => b.weight - a.weight).slice(0, 40),
+      held: world.memory.slots.length,
+      latestText: world.memory.latestText,
+    },
     conversation: { bubble: world.conversation.bubble }, // full log via /api/conversations
     gapgpt: !!(DIALOGUE_ON && GAP_KEY),
     fx: fxTail,
@@ -1032,7 +1037,7 @@ const server = createServer(async (req, res) => {
     return sendJSON(
       res,
       JSON.stringify(
-        db.prepare(`SELECT id,kind,txt,trait,dir,weight,born_day,archived FROM memories WHERE seed=? ORDER BY weight DESC LIMIT 200`).all(String(SEED)),
+        db.prepare(`SELECT id,kind,txt,trait,dir,weight,born_day,archived FROM memories WHERE seed=? ORDER BY weight DESC, born_day DESC LIMIT 2000`).all(String(SEED)),
       ),
     );
   }

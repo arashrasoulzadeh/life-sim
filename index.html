@@ -124,6 +124,7 @@
       <button id="zoombtn" hidden>⤢ grid</button>
       <span id="tb-season" title="the world outside"></span>
       <span id="tb-day" title="day of the week"></span>
+      <button id="mem-btn">memory</button>
       <button id="vote-btn">vote</button>
       <button id="journal-btn">journal</button>
       <button id="shop-btn">shop</button>
@@ -166,6 +167,17 @@
       <p style="color:#7f8a9c">Only the AI buys — this is what it can choose from. ~200 things in four categories.</p>
       <pre id="shop-body">…</pre>
       <button class="close" id="shop-close">close</button>
+    </dialog>
+
+    <dialog id="memories">
+      <h2>MEMORY</h2>
+      <p id="mem-count" style="color:#7f8a9c;font-size:12px"></p>
+      <div id="mem-list" style="display:flex;flex-direction:column;gap:4px;max-height:52vh;overflow:auto"></div>
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+        <button id="mem-all" style="background:#1f2530;border:1px solid #3d4655;color:#dfe4ee;border-radius:6px;padding:6px 12px;cursor:pointer">see all</button>
+        <span id="mem-msg" style="color:#7f8a9c;font-size:12px"></span>
+      </div>
+      <button class="close" id="memories-close">close</button>
     </dialog>
 
     <dialog id="vote">

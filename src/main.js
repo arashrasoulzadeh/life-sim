@@ -298,7 +298,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // ---------- panels ----------
-const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo"), guest: $("guest"), vote: $("vote"), journal: $("journal") };
+const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo"), guest: $("guest"), vote: $("vote"), journal: $("journal"), memories: $("memories") };
 $("about-btn").addEventListener("click", () => dlgs.about.showModal());
 for (const id of Object.keys(dlgs)) {
   if (!dlgs[id]) continue;
@@ -481,6 +481,54 @@ async function openVote() {
     $("vote-prompt").textContent = "couldn't load the vote";
   }
 }
+const TRAIT_TINT = { diligence: "#e0b45c", sociability: "#7ad0a0", curiosity: "#8fb8e8", restlessness: "#c98bd0" };
+function memRow(m) {
+  const text = m.text || m.txt || "";
+  const trait = m.trait || "";
+  const dir = m.dir > 0 ? "+" : "−";
+  const born = m.bornDay ?? m.born_day ?? "?";
+  const weight = typeof m.weight === "number" ? m.weight.toFixed(1) : "?";
+  const row = document.createElement("div");
+  row.style.cssText =
+    "border-left:3px solid " + (TRAIT_TINT[trait] || "#555") + ";padding:4px 8px;background:#12161d;border-radius:4px;cursor:pointer";
+  const line = document.createElement("div");
+  line.style.cssText = "color:#dfe4ee;font-size:12px";
+  line.textContent = text;
+  const detail = document.createElement("div");
+  detail.style.cssText = "color:#8f98a8;font-size:11px;margin-top:3px";
+  detail.hidden = true;
+  detail.textContent = `${m.kind || "?"} · ${trait}${dir} · weight ${weight} · born day ${born}${m.archived ? " · archived" : ""}${m.summarised ? ` · folds ${m.summarised}` : ""}`;
+  row.append(line, detail);
+  row.addEventListener("click", () => (detail.hidden = !detail.hidden));
+  return row;
+}
+function fillMemList(list, arr) {
+  list.innerHTML = "";
+  for (const m of arr) list.appendChild(memRow(m));
+}
+function openMemories() {
+  dlgs.memories.showModal();
+  const list = $("mem-list");
+  $("mem-msg").textContent = "";
+  const slots = (world && world.memory && world.memory.slots) || [];
+  const top = [...slots].sort((a, b) => b.weight - a.weight).slice(0, 11);
+  fillMemList(list, top);
+  $("mem-count").textContent = `${world?.memoryTotal ?? slots.length} memories ever · showing the ${top.length} strongest held now`;
+  $("mem-all").hidden = false;
+}
+$("mem-all")?.addEventListener("click", async () => {
+  $("mem-msg").textContent = "loading…";
+  try {
+    const all = await fetch("/api/memories").then((r) => r.json());
+    fillMemList($("mem-list"), all);
+    $("mem-count").textContent = `${all.length} memories, strongest first · click one to expand`;
+    $("mem-msg").textContent = "";
+    $("mem-all").hidden = true;
+  } catch {
+    $("mem-msg").textContent = "couldn't load";
+  }
+});
+$("mem-btn")?.addEventListener("click", openMemories);
 $("journal-btn")?.addEventListener("click", openJournal);
 $("vote-btn")?.addEventListener("click", openVote);
 $("guest-btn")?.addEventListener("click", openGuest);
@@ -591,7 +639,7 @@ addEventListener("keydown", (e) => {
   if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
   const k = e.key.toLowerCase();
   if (e.key === "Escape") return setZoom(null);
-  if (k === "m") ui.showMemory = !ui.showMemory;
+  if (k === "m") openMemories();
   else if (k === "c") {
     ui.showConversation = !ui.showConversation;
     if (ui.showConversation) loadConvLog();

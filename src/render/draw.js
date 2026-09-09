@@ -382,11 +382,12 @@ function drawMemoryWall(ctx, w) {
   ctx.fillStyle = "#c8ccd4";
   ctx.font = "9px ui-monospace, Menlo, monospace";
   ctx.textBaseline = "top";
-  ctx.fillText(`MEMORY  ${slots.length}/12`, x0, y0 - 14);
-  for (let i = 0; i < 12; i++) {
+  ctx.fillText(`MEMORY  ${w.memory.held ?? slots.length} held`, x0, y0 - 14);
+  const shown = [...slots].sort((a, b) => b.weight - a.weight).slice(0, 11);
+  for (let i = 0; i < 11; i++) {
     const cx = x0 + (i % cols) * (cell + gap);
     const cy = y0 + Math.floor(i / cols) * (cell + gap);
-    const s = slots[i];
+    const s = shown[i];
     if (!s) {
       ctx.fillStyle = "rgba(255,255,255,0.05)";
       ctx.fillRect(cx, cy, cell, cell);
@@ -667,7 +668,7 @@ function drawMemoryOverlay(ctx, w) {
     ctx.fillStyle = "#5f6675";
     ctx.fillText("nothing yet — it hasn't sat down to reflect", 40, y);
   }
-  for (const s of [...w.memory.slots].sort((a, b) => b.weight - a.weight)) {
+  for (const s of [...w.memory.slots].sort((a, b) => b.weight - a.weight).slice(0, 11)) {
     ctx.fillStyle = TRAIT_COLOR[s.trait] ?? "#888";
     ctx.fillRect(40, y + 1, 8, 8);
     ctx.fillStyle = "#c3c8d2";
@@ -703,7 +704,7 @@ function drawSeedCard(ctx, w) {
     `            curiosity   ${bar10(p.curiosity)}`,
     `            restless    ${bar10(p.restlessness)}`,
     ``,
-    `remembers   ${w.memory.slots.length} / 12 memories`,
+    `remembers   ${w.memoryTotal || w.memory.slots.length} memories (${w.memory.held ?? w.memory.slots.length} held)`,
   ];
   let y = 72;
   for (const l of lines) {
