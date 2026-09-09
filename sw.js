@@ -1,7 +1,7 @@
 // SimYou PWA service worker — caches the app shell so it opens instantly and
 // survives a flaky connection. Live data (/stream, /api, /games) is never cached.
 
-const CACHE = "simyou-v1";
+const CACHE = "simyou-v3";
 const SHELL = [
   "/",
   "/index.html",
@@ -32,19 +32,17 @@ self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   if (url.pathname.startsWith("/stream") || url.pathname.startsWith("/api/") || url.pathname.startsWith("/games/")) return;
 
+  // Network-first: always try the server so a deploy takes effect immediately,
+  // fall back to the cached shell only when offline.
   e.respondWith(
-    caches.match(e.request).then(
-      (hit) =>
-        hit ||
-        fetch(e.request)
-          .then((res) => {
-            if (res.ok) {
-              const copy = res.clone();
-              caches.open(CACHE).then((c) => c.put(e.request, copy));
-            }
-            return res;
-          })
-          .catch(() => caches.match("/index.html")),
-    ),
+    fetch(e.request)
+      .then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request).then((hit) => hit || caches.match("/index.html"))),
   );
 });
