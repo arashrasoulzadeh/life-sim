@@ -64,6 +64,15 @@ export const ACTIONS = [
     weight: 0.9,
   },
   {
+    id: "water",
+    label: "water a thirsty plant",
+    gerund: "tending a plant",
+    room: "window", // overridden to wherever the thirsty plant is
+    effect: { curiosity: 1.4, focus: 0.6, social: 0.2 },
+    duration: [3, 6],
+    weight: 0.6,
+  },
+  {
     id: "pace",
     label: "pace around",
     gerund: "pacing",

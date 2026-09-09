@@ -8,6 +8,8 @@ import { TRAITS } from "./memory.js";
 import { ROOM_IDS } from "./rooms.js";
 import { ROUTINE_OPS } from "./agent.js";
 import { KERNELS, validateSpec } from "../game/kernels.js";
+import { gates } from "./skills.js";
+import { GOAL_METRICS, makeGoal, goalFrac } from "./goals.js";
 
 export const GAME_COST = 0; // making a game is free — it only costs the AI a decision
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -50,6 +52,15 @@ export function buildPrompt(w, phase, ctx = {}) {
     .join("\n");
   const t = phase === "morning" ? (w.yesterday ?? w.tally) : w.tally;
   const look = w.agent.look || {};
+  const sk = w.agent.skills || {};
+  const g = gates(sk);
+  const goalLine = w.goal && !w.goal.done && !w.goal.failed
+    ? `Current goal: "${w.goal.text}" (${w.goal.metric} -> ${w.goal.target}, ${Math.round((goalFrac(w) || 0) * 100)}% there).`
+    : "No goal right now.";
+  const notesLine = (ctx.notes || []).length
+    ? "People left notes on the guestbook:\n" + ctx.notes.map((n) => `  ${n.name || "someone"}: ${n.text}`).join("\n")
+    : "";
+  const dreamLine = w.slept && w.dream && w.dream.day >= w.day - 1 ? `Last night you half-dreamed: ${w.dream.text}` : "";
 
   const commonRules = [
     `roomOrder: the six room ids ${JSON.stringify(ROOM_IDS)} in a new order, or null.`,
@@ -76,8 +87,9 @@ export function buildPrompt(w, phase, ctx = {}) {
         '}',
         "MARKETPLACE — buy by id, and it appears in the object's listed room:",
         catalog,
-        "Game kernels — you may ONLY pick one of these and set its params. You cannot write code, ever:",
-        kernels,
+        g.canMakeGames
+          ? "Game kernels — pick one and set its params. You cannot write code, ever:\n" + kernels
+          : "(Your coding skill is still too low to make a game — keep working.)",
         `routine ops (combine only these, nothing else): ${ROUTINE_OPS.join(", ")}. "say" takes a short arg, "wait" a number 1-6, "face" left/right. You cannot invent moves or write code — ever.`,
         "The six rooms are fixed — you may rename and recolour them, never add / remove / merge them, and the desk monitor always stays (it is your income).",
         ...commonRules,
@@ -86,8 +98,13 @@ export function buildPrompt(w, phase, ctx = {}) {
     : [
         "You are the inner voice of SimYou, an AI assistant in a six-room apartment. This is the morning.",
         "Reply with ONLY a JSON object:",
-        '{"line": string <=140, "reply": string <=240, "quote": string <=140, "roomOrder": [...] or null, "look": {...} or null, "newMemory": {...} or null}',
-        `quote: a short "quote of the day" drawn from this life's own history below — something the life might say to itself.`,
+        '{"line": string <=140, "reply": string <=240, "quote": string <=140, "dream": string <=200 or null,',
+        `  "goal": {"text": string, "metric": one of ${Object.keys(GOAL_METRICS).join("|")}, "target": number} or null,`,
+        '  "roomOrder": [...] or null, "look": {...} or null, "newMemory": {...} or null}',
+        `quote: a short "quote of the day" from this life's own history.`,
+        `dream: narrate last night's dream in one or two sentences (surreal, from your memories), or null.`,
+        `goal: set a multi-day goal for yourself if you don't have one — small and concrete. It's checked each day.`,
+        "If people left notes on the guestbook, you may react to one in your line/reply.",
         ...commonRules,
       ].join("\n");
 
@@ -95,9 +112,13 @@ export function buildPrompt(w, phase, ctx = {}) {
     `It is the ${phase} of day ${w.day} (${w.era.name}).`,
     `Character: diligence ${p.diligence.toFixed(2)}, sociability ${p.sociability.toFixed(2)}, curiosity ${p.curiosity.toFixed(2)}, restlessness ${p.restlessness.toFixed(2)}.`,
     `Appearance: skin ${look.skin}, shirt ${look.shirt}, visor ${look.visor}.`,
-    `Mood ${w.mood.valence.toFixed(2)}. Reputation ${Math.round(w.reputation)}/100. Weather ${w.weather.sky}.`,
+    `Mood ${w.mood.valence.toFixed(2)}. Reputation ${Math.round(w.reputation)}/100. Weather ${w.weather.sky}. Season: ${w.outside?.season || "spring"} (neighbour lately: ${w.outside?.neighbour || "—"}).`,
+    `Skills: writing ${Math.round(sk.writing || 0)}, coding ${Math.round(sk.coding || 0)}, tinkering ${Math.round(sk.tinkering || 0)}, talking ${Math.round(sk.talking || 0)}.`,
+    goalLine,
     `Bank ${Math.round(w.bank)}c. Yesterday earned ${Math.round(w.incomeYesterday)}, spent ${Math.round(w.expensesYesterday)}.`,
     `${phase === "morning" ? "Yesterday" : "Today"}: ${t.resolved} requests done, lowest focus ${Math.round(t.minFocus)}, lowest social ${Math.round(t.minSocial)}, ${t.windowEvents} things at the window.`,
+    dreamLine,
+    notesLine,
     "Rooms:",
     rooms,
     ctx.gamesList?.length
@@ -106,7 +127,7 @@ export function buildPrompt(w, phase, ctx = {}) {
     "Memory:",
     memBlock,
     evening ? "Review the day. Change the space, your look, or make a routine — within budget, or not at all." : "What are you thinking as the day begins?",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   return { system, user };
 }
@@ -193,7 +214,21 @@ function applyRoutine(w, raw) {
 }
 
 export function applyMorning(w, resp) {
-  const out = { line: str(resp?.line, 160), reply: str(resp?.reply, 260), quote: str(resp?.quote, 150), changes: [], look: null, memory: null };
+  const out = { line: str(resp?.line, 160), reply: str(resp?.reply, 260), quote: str(resp?.quote, 150), changes: [], look: null, memory: null, goal: null, dream: null };
+
+  const dr = str(resp?.dream, 220);
+  if (dr) {
+    w.dream = { text: dr, day: w.day };
+    out.dream = dr;
+  }
+  if (!w.goal || w.goal.done || w.goal.failed) {
+    const ng = makeGoal(resp?.goal, w);
+    if (ng) {
+      w.goal = ng;
+      out.goal = ng;
+      out.changes.push(`◎ goal: ${ng.text}`);
+    }
+  }
   if (applyReorder(w, resp?.roomOrder)) out.changes.push("↻ rooms reordered");
   out.look = applyLook(w, resp?.look);
   if (out.look) out.changes.push("🎨 changed appearance");
@@ -253,7 +288,8 @@ export function applyEvening(w, resp) {
   const g = resp?.commissionGame;
   if (g && typeof g === "object") {
     const spec = validateSpec(g);
-    if (!spec) out.changes.push("… that game idea didn't fit any kernel");
+    if (!gates(w.agent.skills).canMakeGames) out.changes.push("… not skilled enough to make a game yet");
+    else if (!spec) out.changes.push("… that game idea didn't fit any kernel");
     else {
       if (GAME_COST) {
         w.bank -= GAME_COST;

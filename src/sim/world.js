@@ -8,6 +8,11 @@ import { eraFor } from "./eras.js";
 import { applyEffect } from "./needs.js";
 import { OBJECTS, DEFAULT_OBJECTS } from "./objects.js";
 import { ROOM_IDS } from "./rooms.js";
+import { tickSkills } from "./skills.js";
+import { checkGoal } from "./goals.js";
+import { freshOutside, stepOutside, windowEventPool } from "./outside.js";
+import { tickPlants, plantsNewDay, thirstyIn, water as waterPlant } from "./plants.js";
+import { weaveDream } from "./dreams.js";
 
 export const START_BANK = 200; // seed coins
 
@@ -16,15 +21,6 @@ export const START_BANK = 200; // seed coins
 // fast the clock is set to run.
 export const DAY_LENGTH = 600;
 const NIGHT_FROM = 0.66;
-
-const WINDOW_EVENTS = [
-  "a bird on the ledge",
-  "someone walking a dog",
-  "a plane, very high",
-  "a kite",
-  "two people arguing",
-  "a cat crossing the wall",
-];
 
 function freshTally(day) {
   return {
@@ -77,6 +73,11 @@ export function createWorld(seed) {
     expensesYesterday: 0,
     gamesCount: 0,
     quote: null, // { text, day } — quote of the day from this life's history
+    goal: null, // { text, metric, target, start, startDay, done, failed }
+    dream: null, // { text, day }
+    outside: freshOutside(rng), // { season, neighbour, neighbourSeenDay }
+    plants: {}, // "room:id" -> { water, since, dryDays }
+    slept: false, // asleep at some point last night — feeds the morning dream
     conversation: { log: [], bubble: null, lastMorningDay: 0, lastEveningDay: 0 },
     roomDocs: {},
     dialogueRequest: null, // "morning" | "evening" — picked up by the server loop
@@ -101,6 +102,7 @@ export function tick(w, dt) {
   if (stepWeather(w, dt, w.rng)) {
     /* sky changed — no sound, it's ambient */
   }
+  stepOutside(w, w.rng);
 
   // requests arrive on their own; a poor reputation slows the stream
   w.nextRequestIn -= dt;
@@ -118,7 +120,7 @@ export function tick(w, dt) {
   }
   if (w.nextWindowEventIn <= 0) {
     w.nextWindowEventIn = w.rng.range(80, 220);
-    w.windowEvent = { label: w.rng.pick(WINDOW_EVENTS), ttl: w.rng.range(14, 26) };
+    w.windowEvent = { label: windowEventPool(w, w.rng), ttl: w.rng.range(14, 26) };
     w.tally.windowEvents++;
     w.fx.push("event");
     if (w.agent.room === "window") w.agent.needs.curiosity = Math.min(100, w.agent.needs.curiosity + 18);
@@ -129,6 +131,9 @@ export function tick(w, dt) {
   else if (w.requests <= 1) w.reputation = clamp100(w.reputation + 0.35 * dt);
 
   decayNeeds(w.agent.needs, w.agent.personality, dt, w.isNight, w.era.decayMul);
+  tickSkills(w.agent, dt);
+  tickPlants(w, dt, DAY_LENGTH);
+  if (w.isNight && w.agent.action && w.agent.action.id === "sleep") w.slept = true;
 
   // weather pulls on curiosity while the agent is actually at the window
   if (w.agent.room === "window") {
@@ -156,6 +161,12 @@ export function tick(w, dt) {
   const wantsReflect =
     w.dayFrac >= 0.42 && w.dayFrac < 0.72 && w.memory.lastWrittenDay < w.day && w.requests <= 3;
 
+  // is a plant somewhere thirsty enough to go tend?
+  let thirstyRoom = null;
+  if (!w.isNight) {
+    for (const r of ROOM_IDS) if (thirstyIn(w, r)) { thirstyRoom = r; break; }
+  }
+
   // a playful routine plays out once, in daylight, while idle — the utility AI pauses
   const performing = !w.isNight && stepRoutine(w.agent, dt);
   if (performing) {
@@ -175,7 +186,15 @@ export function tick(w, dt) {
       isNight: w.isNight,
       requestsWaiting: w.requests,
       wantsReflect,
+      thirstyRoom,
       speedMul: w.era.speedMul,
+      onWater: (room) => {
+        const label = waterPlant(w, room);
+        if (label) {
+          w.fx.push("event");
+          w.agent.needs.curiosity = clamp100(w.agent.needs.curiosity + 6);
+        }
+      },
       onRequestResolved: () => {
         w.requests = Math.max(0, w.requests - 1);
         w.tokens += 3 + Math.round(w.rng.range(0, 4));
@@ -222,6 +241,40 @@ function onNewDay(w) {
   w.expensesYesterday = w.expensesToday;
   w.incomeToday = 0;
   w.expensesToday = 0;
+
+  // plants that died overnight
+  for (const key of plantsNewDay(w)) {
+    const label = OBJECTS[key.split(":")[1]] ? OBJECTS[key.split(":")[1]].label : "a plant";
+    w.memory.slots.push({
+      id: w.memory.nextId++, kind: "spoken", text: `I let ${label} die.`,
+      trait: "diligence", dir: -1, mag: 0.025, weight: 1, bornDay: w.day,
+    });
+    w.memory.total = (w.memory.total || 0) + 1;
+  }
+
+  // goal reached or lapsed
+  const g = checkGoal(w);
+  if (g === "done") {
+    w.fx.push("memory");
+    w.memory.slots.push({
+      id: w.memory.nextId++, kind: "spoken", text: `Did it: ${w.goal.text}.`,
+      trait: "diligence", dir: 1, mag: 0.04, weight: 1.3, bornDay: w.day,
+    });
+    w.memory.total = (w.memory.total || 0) + 1;
+  } else if (g === "failed") {
+    w.memory.slots.push({
+      id: w.memory.nextId++, kind: "spoken", text: `Gave up on ${w.goal.text}.`,
+      trait: "diligence", dir: -1, mag: 0.03, weight: 1, bornDay: w.day,
+    });
+    w.memory.total = (w.memory.total || 0) + 1;
+  }
+
+  // a dream, from last night — the morning conversation may replace it with its own
+  if (w.slept && w.memory.slots.length) {
+    w.dream = { text: weaveDream(w.memory.slots, w.rng), day: w.day };
+  }
+  w.slept = false;
+
   w.conversation.lastMorningDay = w.day;
   w.dialogueRequest = "morning";
   w.fx.push("day");

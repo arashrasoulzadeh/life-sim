@@ -1,6 +1,7 @@
 import { ACTIONS } from "./actions.js";
 import { applyEffect, pressure } from "./needs.js";
 import { ROOMS } from "./rooms.js";
+import { freshSkills } from "./skills.js";
 
 const WALK_SPEED = 46; // px/s
 export const CORRIDOR_Y = 316;
@@ -30,6 +31,7 @@ export function makeAgent(rng) {
   return {
     personality: makePersonality(rng),
     look: makeLook(rng),
+    skills: freshSkills(),
     needs: { focus: 70, energy: 80, social: 55, curiosity: 60 },
     room: "bed",
     x: spot.x,
@@ -131,7 +133,7 @@ function personalityBoost(p, need) {
 }
 
 export function scoreActions(agent, env, rng) {
-  const { isNight, requestsWaiting, wantsReflect } = env;
+  const { isNight, requestsWaiting, wantsReflect, thirstyRoom } = env;
   const { needs, personality } = agent;
   return ACTIONS.map((action) => {
     let score = action.weight;
@@ -159,6 +161,7 @@ export function scoreActions(agent, env, rng) {
     }
     if (action.id === "pace") score *= 0.4 + personality.restlessness * 1.6;
     if (action.id === "rest" && needs.energy > 60) score *= 0.4;
+    if (action.id === "water") score *= thirstyRoom ? 2.2 + personality.curiosity : 0.01;
 
     // travel cost — cheaper to keep doing what you're near
     if (action.room !== agent.room) score *= 0.8;
@@ -224,6 +227,7 @@ export function stepAgent(agent, dt, env, rng) {
     }
     if (agent.actionLeft > 0) return;
     if (agent.action.id === "reflect") onReflect();
+    if (agent.action.id === "water" && env.onWater) env.onWater(agent.room);
   }
 
   // decide what to do next
@@ -232,9 +236,12 @@ export function stepAgent(agent, dt, env, rng) {
   agent.action = chosen;
   agent.actionLeft = rng.range(chosen.duration[0], chosen.duration[1]);
   agent.workProgress = 0;
+  // "water" happens wherever the thirsty plant is
+  const targetRoom = chosen.id === "water" && env.thirstyRoom ? env.thirstyRoom : chosen.room;
   agent.lastThought = thoughtFor(agent, chosen, isNight, requestsWaiting);
 
-  if (chosen.room !== agent.room) {
+  if (targetRoom !== agent.room) {
+    agent.room = targetRoom;
     agent.room = chosen.room;
     agent.transit = rng.range(2, 3.6);
     agent.transitTotal = agent.transit;
@@ -257,6 +264,7 @@ function thoughtFor(agent, a, isNight, reqs) {
   if (a.id === "gaze") return n.curiosity < 25 ? "need to see something new" : "what's out there today";
   if (a.id === "chat") return n.social < 25 ? "it's been quiet. reaching out" : "wonder how the others are";
   if (a.id === "rest") return "sitting down for a bit";
+  if (a.id === "water") return "that plant looks thirsty";
   if (a.id === "reflect") return "what was today, really";
   return "stretching my legs";
 }

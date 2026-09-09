@@ -252,6 +252,10 @@ function frame(now) {
     }
   }
   tbTag.textContent = world.seedTag || "—";
+  const season = world.outside?.season;
+  $("tb-season").textContent = season ? `${SEASON_GLYPH[season] || ""} ${season}` : "";
+  const unread = world.notesUnread || 0;
+  $("guest-btn").textContent = unread ? `guestbook (${unread})` : "guestbook";
   tbTok.textContent = `◊ ${world.bank} coins`;
   tbQuote.textContent = world.quote?.text ? world.quote.text : "a life that runs itself";
   if (ui.notice && performance.now() > ui.notice.until) ui.notice = null;
@@ -260,7 +264,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // ---------- panels ----------
-const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo") };
+const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo"), guest: $("guest") };
 $("about-btn").addEventListener("click", () => dlgs.about.showModal());
 for (const id of Object.keys(dlgs)) {
   const c = $(`${id}-close`);
@@ -339,6 +343,44 @@ function openObj(meta, room) {
     (world ? `(day ${world.day} now — ${world.day - meta.day} days ago)` : "");
   dlgs.objinfo.showModal();
 }
+const SEASON_GLYPH = { spring: "🌱", summer: "☀️", autumn: "🍂", winter: "❄️" };
+async function openGuest() {
+  dlgs.guest.showModal();
+  const body = $("guest-body");
+  body.textContent = "loading…";
+  try {
+    const notes = await fetch("/api/notes").then((r) => r.json());
+    body.textContent = notes.length
+      ? notes.map((n) => `${(n.name || "someone").padEnd(16)} ${n.txt}`).join("\n")
+      : "  (no notes yet — be the first)";
+  } catch {
+    body.textContent = "couldn't load";
+  }
+}
+$("guest-btn").addEventListener("click", openGuest);
+$("guest-send").addEventListener("click", async () => {
+  const text = $("guest-text").value.trim();
+  const name = $("guest-name").value.trim();
+  const msg = $("guest-msg");
+  if (text.length < 2) { msg.textContent = "say something first"; return; }
+  msg.textContent = "sending…";
+  try {
+    const r = await fetch("/api/note", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text, name }),
+    });
+    if (r.ok) {
+      $("guest-text").value = "";
+      msg.textContent = "left on the desk. it'll be read at the next morning.";
+      openGuest();
+    } else {
+      msg.textContent = await r.text();
+    }
+  } catch {
+    msg.textContent = "couldn't send";
+  }
+});
 $("shop-btn").addEventListener("click", openShop);
 $("gamecodebtn").addEventListener("click", openGameCode);
 $("followbtn").addEventListener("click", () => {

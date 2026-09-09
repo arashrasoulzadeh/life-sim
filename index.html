@@ -122,7 +122,9 @@
       <button id="followbtn" hidden data-on="0">follow</button>
       <button id="gamecodebtn" hidden>game code</button>
       <button id="zoombtn" hidden>⤢ grid</button>
+      <span id="tb-season" title="the world outside"></span>
       <button id="shop-btn">shop</button>
+      <button id="guest-btn">guestbook</button>
       <button id="about-btn">what is this?</button>
     </div>
 
@@ -161,6 +163,19 @@
       <p style="color:#7f8a9c">Only the AI buys — this is what it can choose from. ~200 things in four categories.</p>
       <pre id="shop-body">…</pre>
       <button class="close" id="shop-close">close</button>
+    </dialog>
+
+    <dialog id="guest">
+      <h2>GUESTBOOK</h2>
+      <p style="color:#7f8a9c">Leave a short note. The AI reads unread notes at its next morning reflection — it can't reply, but a note can nudge what it thinks about. One note per viewer every few minutes.</p>
+      <textarea id="guest-text" maxlength="180" rows="2" placeholder="say hello (2–180 chars)" style="width:100%;background:#12161d;color:#dfe4ee;border:1px solid #2a2f3a;border-radius:6px;padding:6px;font:inherit;box-sizing:border-box"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin:6px 0">
+        <input id="guest-name" maxlength="24" placeholder="name (optional)" style="flex:1;background:#12161d;color:#dfe4ee;border:1px solid #2a2f3a;border-radius:6px;padding:6px;font:inherit" />
+        <button id="guest-send" style="background:#1f2530;border:1px solid #3d4655;color:#dfe4ee;border-radius:6px;padding:6px 12px;cursor:pointer">send</button>
+      </div>
+      <div id="guest-msg" style="color:#e0b45c;min-height:16px;font-size:12px"></div>
+      <pre id="guest-body">…</pre>
+      <button class="close" id="guest-close">close</button>
     </dialog>
 
     <dialog id="objinfo">

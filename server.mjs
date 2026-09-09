@@ -20,6 +20,7 @@ import { createWorld, tick, drainFx, DAY_LENGTH, START_BANK } from "./src/sim/wo
 import { buildPrompt, applyMorning, applyEvening, stubDialogue } from "./src/sim/dialogue.js";
 import { rainIntensity } from "./src/sim/weather.js";
 import { roomDoc, initDocs } from "./src/sim/roomrender.js";
+import { goalFrac } from "./src/sim/goals.js";
 import { ROOM_IDS } from "./src/sim/rooms.js";
 import { describeSpec } from "./src/game/kernels.js";
 import { MARKET } from "./src/sim/marketplace.js";
@@ -60,6 +61,9 @@ try {
   console.error("[simyou] sites.json:", e.message);
 }
 const siteById = new Map(SITES.sites.map((s) => [s.id, s]));
+
+// tiny keep-it-kind filter for the guestbook
+const BAD_WORDS = /\b(f+u+c+k|s+h+i+t|b+i+t+c+h|c+u+n+t|n+i+g+g|f+a+g|retard|rape|kys)\b/i;
 
 // the real seed never leaves the server — viewers get a stable opaque tag
 const SEED_TAG = createHash("sha256").update("simyou:" + SEED).digest("hex").slice(0, 10);
@@ -103,6 +107,9 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS daily (seed TEXT, day INTEGER, income REAL DEFAULT 0, expense REAL DEFAULT 0, PRIMARY KEY (seed, day));
   CREATE TABLE IF NOT EXISTS games (seed TEXT, id INTEGER, title TEXT, spec TEXT, created_day INTEGER, plays INTEGER DEFAULT 0, PRIMARY KEY (seed, id));
   CREATE TABLE IF NOT EXISTS quotes (seed TEXT, day INTEGER, txt TEXT, PRIMARY KEY (seed, day));
+  CREATE TABLE IF NOT EXISTS dreams (seed TEXT, day INTEGER, txt TEXT, PRIMARY KEY (seed, day));
+  CREATE TABLE IF NOT EXISTS goals (seed TEXT, start_day INTEGER, txt TEXT, metric TEXT, target INTEGER, outcome TEXT, end_day INTEGER, PRIMARY KEY (seed, start_day));
+  CREATE TABLE IF NOT EXISTS notes (seed TEXT, ts TEXT, viewer TEXT, name TEXT, txt TEXT, read INTEGER DEFAULT 0);
   CREATE TABLE IF NOT EXISTS impressions (seed TEXT, day INTEGER, viewer TEXT, site TEXT, seconds REAL, credited REAL, PRIMARY KEY (seed, day, viewer, site));
 `);
 // migrate older DBs missing the reply column
@@ -183,6 +190,18 @@ const Q = {
   dailyList: db.prepare(`SELECT day,income,expense FROM daily WHERE seed=? ORDER BY day DESC LIMIT 30`),
   quoteSet: db.prepare(`INSERT INTO quotes (seed,day,txt) VALUES (?,?,?) ON CONFLICT(seed,day) DO UPDATE SET txt=excluded.txt`),
   quoteList: db.prepare(`SELECT day,txt FROM quotes WHERE seed=? ORDER BY day DESC LIMIT 30`),
+  dreamSet: db.prepare(`INSERT INTO dreams (seed,day,txt) VALUES (?,?,?) ON CONFLICT(seed,day) DO UPDATE SET txt=excluded.txt`),
+  dreamList: db.prepare(`SELECT day,txt FROM dreams WHERE seed=? ORDER BY day DESC LIMIT 30`),
+  goalIns: db.prepare(`INSERT INTO goals (seed,start_day,txt,metric,target,outcome,end_day) VALUES (?,?,?,?,?,NULL,NULL) ON CONFLICT(seed,start_day) DO NOTHING`),
+  goalEnd: db.prepare(`UPDATE goals SET outcome=?, end_day=? WHERE seed=? AND start_day=? AND outcome IS NULL`),
+  goalList: db.prepare(`SELECT start_day,txt,metric,target,outcome,end_day FROM goals WHERE seed=? ORDER BY start_day DESC LIMIT 20`),
+  noteIns: db.prepare(`INSERT INTO notes (seed,ts,viewer,name,txt,read) VALUES (?,?,?,?,?,0)`),
+  noteRecent: db.prepare(`SELECT ts,name,txt FROM notes WHERE seed=? ORDER BY rowid DESC LIMIT 40`),
+  noteUnread: db.prepare(`SELECT ts,name,txt,rowid FROM notes WHERE seed=? AND read=0 ORDER BY rowid ASC LIMIT 8`),
+  noteMarkRead: db.prepare(`UPDATE notes SET read=1 WHERE seed=? AND rowid<=?`),
+  noteUnreadCount: db.prepare(`SELECT COUNT(*) c FROM notes WHERE seed=? AND read=0`),
+  noteViewerRecent: db.prepare(`SELECT COUNT(*) c FROM notes WHERE seed=? AND viewer=? AND ts > ?`),
+  noteTrim: db.prepare(`DELETE FROM notes WHERE seed=? AND rowid NOT IN (SELECT rowid FROM notes WHERE seed=? ORDER BY rowid DESC LIMIT 500)`),
   gameIns: db.prepare(`INSERT INTO games (seed,id,title,spec,created_day,plays) VALUES (?,?,?,?,?,0)`),
   gamePlays: db.prepare(`UPDATE games SET plays=plays+1 WHERE seed=? AND id=?`),
   gameList: db.prepare(`SELECT id,title,created_day,plays FROM games WHERE seed=? ORDER BY id DESC`),
@@ -214,6 +233,11 @@ function restore(seed, json) {
   for (const r of ROOM_IDS) if (!w.rooms[r]) w.rooms[r] = [];
   if (!Array.isArray(w.roomOrder) || w.roomOrder.length !== ROOM_IDS.length) w.roomOrder = [...ROOM_IDS];
   if (!w.roomStyle || typeof w.roomStyle !== "object") w.roomStyle = {};
+  if (!w.agent.skills) w.agent.skills = { writing: 4, coding: 4, tinkering: 4, talking: 4 };
+  if (!w.outside) w.outside = { season: "spring", neighbour: "the courier who always waves", neighbourSeenDay: 0 };
+  if (!w.plants) w.plants = {};
+  if (!("goal" in w)) w.goal = null;
+  if (!("dream" in w)) w.dream = null;
   if (!w.objDay || typeof w.objDay !== "object") {
     w.objDay = {};
     for (const r of ROOM_IDS) for (const id of w.rooms[r] || []) w.objDay[`${r}:${id}`] = w.day;
@@ -312,6 +336,17 @@ function finishDialogue(phase, r) {
   }
   if (r.game) commitGame(r.game);
   if (phase === "morning" && r.quote && r.quote.length > 3) setQuote(r.quote);
+  if (r.dream) {
+    try { Q.dreamSet.run(String(SEED), world.day, String(r.dream).slice(0, 220)); } catch { /* ignore */ }
+  }
+  if (r.goal) {
+    try { Q.goalIns.run(String(SEED), r.goal.startDay, r.goal.text, r.goal.metric, r.goal.target); } catch { /* ignore */ }
+  }
+  // the AI has seen the guestbook — mark those notes read
+  if (world._noteHighWater) {
+    try { Q.noteMarkRead.run(String(SEED), world._noteHighWater); } catch { /* ignore */ }
+    world._noteHighWater = 0;
+  }
 
   const entry = { phase, day: world.day, line: r.line || "", reply: r.reply || "", changes: r.changes || [], source: r.source, at: Date.now() };
   world.conversation.log.push(entry);
@@ -345,7 +380,10 @@ function buildCtx() {
     secondsYesterday: Q.imprSiteYesterday.get(String(SEED), world.day - 1, s.id)?.s || 0,
   }));
   const gamesList = Q.gameList.all(String(SEED)).map((g) => ({ title: g.title, createdDay: g.created_day, plays: g.plays }));
-  return { digests, lifeSummary: life?.txt || "", sites, gamesList };
+  const unread = Q.noteUnread.all(String(SEED));
+  world._noteHighWater = unread.length ? unread[unread.length - 1].rowid : 0;
+  const notes = unread.map((n) => ({ name: n.name, text: n.txt }));
+  return { digests, lifeSummary: life?.txt || "", sites, gamesList, notes };
 }
 
 // ---------- games (spec only — never code) ----------
@@ -367,7 +405,7 @@ function regenRooms(force) {
   for (const rid of ROOM_IDS) {
     const cur = world.roomDocs[rid];
     if (force || !cur || (cur.objects || []).join(",") !== (world.rooms[rid] || []).join(",")) {
-      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay);
+      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay, world.plants);
       bumped = true;
     }
   }
@@ -427,6 +465,20 @@ function persistMemories() {
 // ---------- daily maintenance ----------
 function onNewDayServer() {
   persistMemories();
+
+  // record a resolved goal + last night's dream
+  if (world.goal && (world.goal.done || world.goal.failed)) {
+    try {
+      Q.goalIns.run(String(SEED), world.goal.startDay, world.goal.text, world.goal.metric, world.goal.target);
+      Q.goalEnd.run(world.goal.done ? "done" : "failed", world.day, String(SEED), world.goal.startDay);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (world.dream && world.dream.day === world.day) {
+    try { Q.dreamSet.run(String(SEED), world.day, world.dream.text); } catch { /* ignore */ }
+  }
+
   // consolidate dormant, old memories into a monthly digest (kept, not deleted)
   try {
     const rows = Q.memDormant.all(String(SEED), world.day);
@@ -621,6 +673,13 @@ function viewSnapshot() {
     gamesCount: world.gamesCount || 0,
     latestGameId: world.latestGameId || 0,
     quote: world.quote || null,
+    dream: world.dream && world.dream.day >= world.day - 1 ? world.dream : null,
+    goal: world.goal
+      ? { text: world.goal.text, metric: world.goal.metric, target: world.goal.target, done: !!world.goal.done, failed: !!world.goal.failed, frac: goalFrac(world) }
+      : null,
+    outside: { season: world.outside?.season || "spring", neighbour: world.outside?.neighbour || "" },
+    plants: world.plants || {},
+    notesUnread: Q.noteUnreadCount.get(String(SEED))?.c || 0,
     agent: world.agent,
     mood: world.mood,
     weather: world.weather,
@@ -756,6 +815,34 @@ const server = createServer(async (req, res) => {
   if (path === "/api/ledger") return sendJSON(res, JSON.stringify(Q.ledgerTail.all(String(SEED))));
   if (path === "/api/daily") return sendJSON(res, JSON.stringify(Q.dailyList.all(String(SEED))));
   if (path === "/api/quotes") return sendJSON(res, JSON.stringify(Q.quoteList.all(String(SEED))));
+  if (path === "/api/dreams") return sendJSON(res, JSON.stringify(Q.dreamList.all(String(SEED))));
+  if (path === "/api/goals") return sendJSON(res, JSON.stringify(Q.goalList.all(String(SEED))));
+  if (path === "/api/notes") return sendJSON(res, JSON.stringify(Q.noteRecent.all(String(SEED))));
+
+  if (path === "/api/note" && req.method === "POST") {
+    const body = safeParse(await readBody(req), {});
+    const viewer = viewerHash(req, body.viewer);
+    let name = String(body.name || "someone").replace(/[<>\n\r]/g, "").trim().slice(0, 24) || "someone";
+    let text = String(body.text || "").replace(/[<>\n\r]+/g, " ").trim().slice(0, 180);
+    if (text.length < 2) {
+      res.writeHead(400);
+      return res.end("say something");
+    }
+    if (BAD_WORDS.test(text) || BAD_WORDS.test(name)) {
+      res.writeHead(422);
+      return res.end("keep it kind");
+    }
+    const since = new Date(Date.now() - 8 * 60000).toISOString();
+    if ((Q.noteViewerRecent.get(String(SEED), viewer, since)?.c || 0) >= 1) {
+      res.writeHead(429);
+      return res.end("one note every few minutes");
+    }
+    Q.noteIns.run(String(SEED), new Date().toISOString(), viewer, name, text);
+    Q.noteTrim.run(String(SEED), String(SEED));
+    world.fx.push("event");
+    world.agent.lastThought = "someone left a note…";
+    return sendJSON(res, JSON.stringify({ ok: true }));
+  }
   if (path === "/api/conversations") {
     return sendJSON(
       res,

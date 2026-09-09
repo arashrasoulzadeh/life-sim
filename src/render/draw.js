@@ -47,6 +47,7 @@ export function render(ctx, w, ui) {
     }
     if (inHall || (w.agent.room === view && w.agent.transit <= 0)) drawAgent(ctx, w);
     drawNightTint(ctx, w);
+    drawSeasonTint(ctx, w);
     if (w.era.tint) {
       ctx.fillStyle = w.era.tint;
       ctx.fillRect(0, 0, W, PLAYFIELD_H);
@@ -59,6 +60,7 @@ export function render(ctx, w, ui) {
     inCell(ctx, w, "bed", () => drawMemoryWall(ctx, w));
     drawGridAgent(ctx, w);
     drawNightTint(ctx, w);
+    drawSeasonTint(ctx, w);
     if (w.era.tint) {
       ctx.fillStyle = w.era.tint;
       ctx.fillRect(0, 0, W, PLAYFIELD_H);
@@ -506,9 +508,33 @@ function drawStrip(ctx, w, ui) {
   const llm = ui && ui.llm ? (ui.llmSource === "gapgpt" ? " · ◆gapgpt" : " · ◇talk") : "";
   ctx.fillText(`${w.weather.sky} · mood ${moodWord(w.mood)}${llm}`, 332, top + 38);
 
+  if (w.goal && !w.goal.done && !w.goal.failed) {
+    const frac = Math.max(0, Math.min(1, w.goal.frac || 0));
+    ctx.fillStyle = "#7f8a9c";
+    ctx.font = "8px ui-monospace, Menlo, monospace";
+    ctx.fillText(`◎ ${String(w.goal.text || "").slice(0, 40)}`, 210, top + 48);
+    ctx.fillStyle = "#20242e";
+    ctx.fillRect(210, top + 58, 150, 4);
+    ctx.fillStyle = "#6bb58a";
+    ctx.fillRect(210, top + 58, 150 * frac, 4);
+  }
+
   ctx.fillStyle = "#8b93a3";
   ctx.font = "11px ui-monospace, Menlo, monospace";
   ctx.fillText(`> ${w.agent.lastThought}`, 12, top + 46);
+}
+
+const SEASON_TINT = {
+  spring: "rgba(150,205,130,0.05)",
+  summer: "rgba(255,210,120,0.06)",
+  autumn: "rgba(210,130,70,0.07)",
+  winter: "rgba(150,180,225,0.07)",
+};
+function drawSeasonTint(ctx, w) {
+  const t = SEASON_TINT[w.outside && w.outside.season];
+  if (!t) return;
+  ctx.fillStyle = t;
+  ctx.fillRect(0, 0, W, PLAYFIELD_H);
 }
 
 function drawMute(ctx, muted) {
