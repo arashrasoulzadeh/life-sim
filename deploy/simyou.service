@@ -5,24 +5,19 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=simyou
-Group=simyou
-WorkingDirectory=/opt/simyou
-EnvironmentFile=/opt/simyou/.env
-ExecStart=/usr/bin/node /opt/simyou/server.mjs
+
+# Adjust User and the three paths to match where you cloned the repo and which
+# user owns it. The defaults assume:  git clone … /home/ubuntu/life-sim  as ubuntu
+User=ubuntu
+WorkingDirectory=/home/ubuntu/life-sim
+EnvironmentFile=/home/ubuntu/life-sim/.env
+ExecStart=/usr/bin/node /home/ubuntu/life-sim/server.mjs
 Restart=always
 RestartSec=3
 
-# SQLite DB path: SIMYOU_DB=/var/lib/simyou/simyou.db in .env
-StateDirectory=simyou
-StateDirectoryMode=0750
-
-# hardening
+# minimal hardening that still allows running from a home directory
 NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/simyou
 
 [Install]
 WantedBy=multi-user.target

@@ -27,35 +27,33 @@ git branch -M main
 git push -u origin main
 ```
 
-### 2. On the server — clone
+### 2. On the server — Node + clone
 
 ```bash
-sudo useradd --system --home /opt/simyou --shell /usr/sbin/nologin simyou
-sudo mkdir -p /opt/simyou
-sudo chown simyou:simyou /opt/simyou
-sudo -u simyou git clone git@github.com:arashrasoulzadeh/life-sim.git /opt/simyou
-```
+node -v   # need >= 22.5 (built-in node:sqlite). If lower:
+# curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs
 
-(For a read-only public repo, `https://github.com/arashrasoulzadeh/life-sim.git`
-works without an SSH key.)
+cd ~
+git clone https://github.com/arashrasoulzadeh/life-sim.git
+cd life-sim
+```
 
 ### 3. On the server — configure (not in git)
 
 ```bash
-cd /opt/simyou
-sudo -u simyou cp .env.example .env
-sudo -u simyou nano .env
+cp .env.example .env
+nano .env
 ```
 
-Set:
+Set (paths absolute, all under the clone dir so the service can write them):
 - `SIMYOU_SEED` — the life to run. **Pick once, never change it.**
-- `SIMYOU_DB=/var/lib/simyou/simyou.db`
-- `SIMYOU_SITES=/opt/simyou/sites.json`
+- `SIMYOU_DB=/home/ubuntu/life-sim/simyou.db`
+- `SIMYOU_SITES=/home/ubuntu/life-sim/sites.json`
 - `SIMYOU_GAPGPT_KEY=` — your GapGPT key (blank = offline voice, still works)
 
 ```bash
-sudo -u simyou cp sites.example.json sites.json
-sudo -u simyou nano sites.json
+cp sites.example.json sites.json
+nano sites.json
 ```
 
 Put real URLs that **allow iframe embedding** (`X-Frame-Options` not `DENY`, no
@@ -65,20 +63,23 @@ earns and buys nothing.
 
 ### 4. systemd
 
+The shipped unit runs as `ubuntu` from `/home/ubuntu/life-sim` — edit `User` and
+the three paths in `deploy/simyou.service` if yours differ.
+
 ```bash
-sudo cp /opt/simyou/deploy/simyou.service /etc/systemd/system/
+sudo cp deploy/simyou.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now simyou
 journalctl -u simyou -f
 ```
 
-`StateDirectory=simyou` in the unit creates `/var/lib/simyou` (mode 0750, owned
-by the service user) for the DB.
+The DB (and its `-wal` / `-shm` sidecars) is written next to the code, owned by
+the service user.
 
 ### 5. nginx + TLS
 
 ```bash
-sudo cp /opt/simyou/deploy/life.meetarash.ir.conf /etc/nginx/sites-available/life.meetarash.ir
+sudo cp deploy/life.meetarash.ir.conf /etc/nginx/sites-available/life.meetarash.ir
 sudo ln -s ../sites-available/life.meetarash.ir /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d life.meetarash.ir
@@ -95,8 +96,8 @@ Open https://life.meetarash.ir — the life is already living. Click once for so
 git push
 
 # the server
-cd /opt/simyou
-sudo -u simyou git pull
+cd /home/ubuntu/life-sim
+git pull
 sudo systemctl restart simyou
 ```
 
@@ -114,12 +115,12 @@ and `daemon-reload` / `nginx -s reload`.
 | want | do |
 |---|---|
 | logs | `journalctl -u simyou -f` |
-| the money | `sqlite3 /var/lib/simyou/simyou.db 'select balance from bank; select ts,kind,amount,note from ledger order by rowid desc limit 20;'` |
+| the money | `sqlite3 /home/ubuntu/life-sim/simyou.db 'select balance from bank; select ts,kind,amount,note from ledger order by rowid desc limit 20;'` |
 | the memories (infinite) | `sqlite3 … 'select txt,trait,weight,archived from memories order by weight desc limit 40;'` |
 | the games it wrote | `sqlite3 … 'select id,title,created_day,plays,bytes from games;'` |
 | every LLM call | `sqlite3 … 'select ts,phase,status,content from llm_calls order by rowid desc limit 20;'` |
 | pause the API spend | `SIMYOU_DIALOGUE=off` in `.env`, `systemctl restart simyou` (offline voice takes over) |
-| change the sites | edit `/opt/simyou/sites.json`, `systemctl restart simyou` |
+| change the sites | edit `/home/ubuntu/life-sim/sites.json`, `systemctl restart simyou` |
 | start the life over | `systemctl stop simyou`; `sqlite3 … "delete from state where seed='<seed>'"` (or delete the db); `systemctl start simyou` |
 
 ## Cost
