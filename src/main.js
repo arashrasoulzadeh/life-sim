@@ -492,7 +492,28 @@ setInterval(() => {
 
 // ---------- PWA ----------
 if ("serviceWorker" in navigator && location.protocol === "https:") {
-  addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+  let reloadedForSW = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloadedForSW) return;
+    reloadedForSW = true;
+    location.reload(); // a new worker took over — get the fresh shell
+  });
+  addEventListener("load", async () => {
+    try {
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      reg.update();
+      setInterval(() => reg.update(), 60 * 60 * 1000); // re-check hourly
+      reg.addEventListener("updatefound", () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener("statechange", () => {
+          if (nw.state === "installed" && navigator.serviceWorker.controller) nw.postMessage("skip-waiting");
+        });
+      });
+    } catch {
+      /* no SW — fine */
+    }
+  });
 }
 
 function safeLS(k, v) {

@@ -1,7 +1,8 @@
-// SimYou PWA service worker — caches the app shell so it opens instantly and
-// survives a flaky connection. Live data (/stream, /api, /games) is never cached.
+// SimYou PWA service worker. The network is always the source of truth; the
+// cache is purely an offline fallback. Live data (/stream, /api, /games) is
+// never touched.
 
-const CACHE = "simyou-v3";
+const CACHE = "simyou-v4";
 const SHELL = [
   "/",
   "/index.html",
@@ -27,15 +28,21 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+// let the page tell a freshly-installed worker to take over now
+self.addEventListener("message", (e) => {
+  if (e.data === "skip-waiting") self.skipWaiting();
+});
+
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   if (url.pathname.startsWith("/stream") || url.pathname.startsWith("/api/") || url.pathname.startsWith("/games/")) return;
 
-  // Network-first: always try the server so a deploy takes effect immediately,
-  // fall back to the cached shell only when offline.
+  // Network-first, and cache-bust the request so no HTTP-cache layer (browser,
+  // nginx, CDN) can hand back a stale file. The cached copy is only ever used
+  // when the network genuinely fails.
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-store" })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();

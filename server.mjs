@@ -976,7 +976,14 @@ const server = createServer(async (req, res) => {
   }
   try {
     const buf = await readFile(file);
-    res.writeHead(200, { "Content-Type": MIME[extname(file)] || "application/octet-stream", "Cache-Control": "no-cache" });
+    const ext = extname(file);
+    // App code and markup must never be served stale — no-store defeats every
+    // cache layer (browser, nginx, CDN). Static art can revalidate cheaply.
+    const volatile = ext === ".html" || ext === ".js" || ext === ".css" || ext === ".webmanifest";
+    res.writeHead(200, {
+      "Content-Type": MIME[ext] || "application/octet-stream",
+      "Cache-Control": volatile ? "no-store, must-revalidate" : "no-cache",
+    });
     res.end(buf);
   } catch {
     res.writeHead(500);
