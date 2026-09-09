@@ -140,6 +140,7 @@ const VOTE_ACTION = {
   chat: "social",
   gaze: "learn",
   reflect: "learn",
+  tinker: "learn",
   water: "tend",
 };
 
@@ -172,13 +173,19 @@ export function scoreActions(agent, env, rng) {
       score *= wantsReflect ? 2.4 + personality.curiosity * 1.4 : 0.02;
       if (requestsWaiting >= 3) score *= 0.3;
     }
+    if (action.id === "tinker") {
+      const coding = (agent.skills && agent.skills.coding) || 4;
+      // curious minds poke at the game room; the pull is strongest while still learning
+      score *= 0.5 + personality.curiosity * 1.4 + (coding < 12 ? 0.8 : 0.2);
+      if (isNight) score *= 0.4;
+    }
     if (action.id === "pace") score *= 0.4 + personality.restlessness * 1.6;
     if (action.id === "rest" && needs.energy > 60) score *= 0.4;
     if (action.id === "water") score *= thirstyRoom ? 2.2 + personality.curiosity : 0.01;
 
     // the week has a shape
     if (action.id === "work") score *= rhythm.work;
-    if (["gaze", "chat", "rest", "pace"].includes(action.id)) score *= rhythm.play;
+    if (["gaze", "chat", "rest", "pace", "tinker"].includes(action.id)) score *= rhythm.play;
 
     // viewers voted a focus yesterday — a gentle nudge, never a command
     if (voteBias) {
@@ -288,6 +295,7 @@ function thoughtFor(agent, a, isNight, reqs) {
   if (a.id === "chat") return n.social < 25 ? "it's been quiet. reaching out" : "wonder how the others are";
   if (a.id === "rest") return "sitting down for a bit";
   if (a.id === "water") return "that plant looks thirsty";
+  if (a.id === "tinker") return "let's see what this could do";
   if (a.id === "reflect") return "what was today, really";
   return "stretching my legs";
 }

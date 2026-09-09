@@ -50,7 +50,7 @@ const DB_SOFT_CAP = DB_CAP_MB * 1024 * 1024;
 const LLM_KEEP = Math.max(500, Math.round(DB_CAP_MB * 3));
 const CONV_KEEP_DAYS = Math.max(60, Math.round(DB_CAP_MB / 4));
 const LLM_BLOB_CAP = 8 * 1024;
-const MAX_GAMES = 10;
+const MAX_GAMES = 24;
 const VIEWER_DAY_SECONDS_CAP = REAL_SECS_PER_DAY; // one in-game day of credited watching per viewer
 
 // ---------- sites.json ----------
@@ -71,6 +71,16 @@ const SEED_TAG = createHash("sha256").update("simyou:" + SEED).digest("hex").sli
 // the game engine, inlined per-response with a nonce so the game frame needs
 // only sandbox="allow-scripts" — no same-origin, no external fetch, ever
 const GAME_JS = readFileSync(join(ROOT, "src/game/game.js"), "utf8");
+
+// a build id — changes whenever the shipped client changes. The page compares
+// it on load and wipes every local cache + storage when it differs.
+const BUILD_ID = (() => {
+  const h = createHash("sha1");
+  for (const f of ["index.html", "sw.js", "src/main.js", "src/render/draw.js"]) {
+    try { h.update(readFileSync(join(ROOT, f))); } catch { /* ignore */ }
+  }
+  return h.digest("hex").slice(0, 12);
+})();
 
 // ---------- database ----------
 let db;
@@ -454,6 +464,9 @@ function commitGame(g) {
     Q.gameIns.run(String(SEED), id, g.title, JSON.stringify(g.spec), world.day);
     Q.gamePrune.run(String(SEED), String(SEED));
     world.gamesCount = Q.gameList.all(String(SEED)).length;
+    world.gamesMade = (world.gamesMade || 0) + 1; // lifetime — never pruned
+    // making one teaches it something
+    if (world.agent.skills) world.agent.skills.coding = Math.min(100, world.agent.skills.coding + 1.5);
     world.fx.push("memory");
   } catch (e) {
     console.error("[simyou] game persist:", e.message);
@@ -733,7 +746,9 @@ function viewSnapshot() {
     roomsVersion: world.roomsVersion,
     memoryTotal: world.memory.total || world.memory.slots.length,
     gamesCount: world.gamesCount || 0,
+    gamesMade: world.gamesMade || world.gamesCount || 0,
     latestGameId: world.latestGameId || 0,
+    build: BUILD_ID,
     quote: world.quote || null,
     dream: world.dream && world.dream.day >= world.day - 1 ? world.dream : null,
     goal: world.goal
@@ -941,6 +956,8 @@ const server = createServer(async (req, res) => {
     }));
   }
 
+  if (path === "/api/version") return sendJSON(res, JSON.stringify({ build: BUILD_ID }));
+
   if (path === "/api/journal") {
     const life = Q.lifeGet.get(String(SEED));
     return sendJSON(res, JSON.stringify({
@@ -948,6 +965,8 @@ const server = createServer(async (req, res) => {
       season: world.outside?.season || "spring",
       week: world.rhythm?.weekStyle || "",
       pet: world.pet ? { name: world.pet.name, bond: world.pet.bond } : null,
+      skills: world.agent.skills || null,
+      gamesMade: world.gamesMade || world.gamesCount || 0,
       lifeSummary: life?.txt || "",
       digests: Q.digestRecent.all(String(SEED)).map((d) => ({ month: d.month, summary: d.summary })),
       memories: Q.memTopActive.all(String(SEED)).map((m) => m.txt),

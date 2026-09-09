@@ -395,9 +395,12 @@ async function openJournal() {
     const goals = (j.goals || [])
       .map((g) => `  ${g.outcome === "done" ? "✓" : g.outcome === "failed" ? "✗" : "·"} ${g.txt}`)
       .join("\n");
+    const sk = j.skills || {};
     body.textContent = [
       `day ${j.day} · ${j.season}${j.week ? `\nthe week: "${j.week}"` : ""}`,
       j.pet && j.pet.name ? `the cat: ${j.pet.name} (bond ${Math.round((j.pet.bond || 0) * 100)}%)` : "",
+      `skills — writing ${Math.round(sk.writing || 0)} · coding ${Math.round(sk.coding || 0)} · tinkering ${Math.round(sk.tinkering || 0)} · talking ${Math.round(sk.talking || 0)}`,
+      `games made: ${j.gamesMade || 0}${(sk.coding || 0) < 10 ? "  (needs coding 10 to start)" : ""}`,
       "",
       j.lifeSummary ? `LIFE SO FAR\n${j.lifeSummary}` : "",
       "",
@@ -591,6 +594,63 @@ addEventListener("keydown", (e) => {
 setInterval(() => {
   if (ui.showConversation) loadConvLog();
 }, 8000);
+
+// ---------- fresh-build guard: wipe every local cache when the server ships a new build ----------
+(async () => {
+  try {
+    const { build } = await fetch("/api/version", { cache: "no-store" }).then((r) => r.json());
+    if (!build) return;
+    let seen = null;
+    try {
+      seen = localStorage.getItem("simyou_build");
+    } catch {
+      /* ignore */
+    }
+    if (seen === build) return;
+
+    if (seen !== null) {
+      // a genuinely new build — clear it all and reload once
+      try {
+        if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
+      } catch {
+        /* ignore */
+      }
+      try {
+        if (navigator.serviceWorker) {
+          for (const reg of await navigator.serviceWorker.getRegistrations()) await reg.unregister();
+        }
+      } catch {
+        /* ignore */
+      }
+      try {
+        const keep = localStorage.getItem("simyou_follow");
+        localStorage.clear();
+        if (keep != null) localStorage.setItem("simyou_follow", keep);
+      } catch {
+        /* ignore */
+      }
+      try {
+        sessionStorage.clear();
+      } catch {
+        /* ignore */
+      }
+      try {
+        localStorage.setItem("simyou_build", build);
+      } catch {
+        /* ignore */
+      }
+      location.reload();
+      return;
+    }
+    try {
+      localStorage.setItem("simyou_build", build);
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    /* offline / no endpoint — carry on */
+  }
+})();
 
 // ---------- PWA ----------
 if ("serviceWorker" in navigator && location.protocol === "https:") {

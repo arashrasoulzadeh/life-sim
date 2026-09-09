@@ -98,8 +98,9 @@ export function buildPrompt(w, phase, ctx = {}) {
         "MARKETPLACE — buy by id, and it appears in the object's listed room:",
         catalog,
         g.canMakeGames
-          ? "Game kernels — pick one and set its params. You cannot write code, ever:\n" + kernels
-          : "(Your coding skill is still too low to make a game — keep working.)",
+          ? `Game kernels — pick one and set its params. You cannot write code, ever:\n${kernels}\n` +
+            `You have coding ${Math.round(sk.coding || 0)}. ${(ctx.gamesList || []).length < 3 ? "You've barely made any games — commissioning one tonight is encouraged." : "Make a new one when an idea is genuinely different from what you've built."}`
+          : `(Coding ${Math.round(sk.coding || 0)}/10 — too low to make a game yet. Work at the desk and spend time in the game room to raise it.)`,
         `routine ops (combine only these, nothing else): ${ROUTINE_OPS.join(", ")}. "say" takes a short arg, "wait" a number 1-6, "face" left/right. You cannot invent moves or write code — ever.`,
         "The six rooms are fixed — you may rename and recolour them, never add / remove / merge them, and the desk monitor always stays (it is your income).",
         ...commonRules,

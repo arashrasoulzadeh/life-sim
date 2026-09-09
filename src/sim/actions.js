@@ -73,6 +73,15 @@ export const ACTIONS = [
     weight: 0.6,
   },
   {
+    id: "tinker",
+    label: "mess about in the game room",
+    gerund: "tinkering with a game",
+    room: "game",
+    effect: { curiosity: 3.4, focus: -0.4, energy: -0.5, social: -0.1 },
+    duration: [6, 14],
+    weight: 0.7,
+  },
+  {
     id: "pace",
     label: "pace around",
     gerund: "pacing",

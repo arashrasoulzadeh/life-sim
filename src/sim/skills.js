@@ -9,18 +9,21 @@ export function freshSkills() {
 
 // per real-second gain while the matching action / room is active
 const BY_ACTION = {
-  work: { writing: 0.05, coding: 0.05 },
-  reflect: { writing: 0.08 },
+  work: { writing: 0.05, coding: 0.06 },
+  reflect: { writing: 0.08, coding: 0.02 },
   chat: { talking: 0.09 },
-  gaze: { tinkering: 0.01 },
+  gaze: { tinkering: 0.015, coding: 0.01 },
+  tinker: { coding: 0.09, tinkering: 0.06 },
 };
 
 export function tickSkills(agent, dt) {
   if (!agent.skills) agent.skills = freshSkills();
   const g = BY_ACTION[agent.action && agent.action.id];
   if (g) for (const k of Object.keys(g)) agent.skills[k] = Math.min(100, agent.skills[k] + g[k] * dt);
+  // time in the game room builds both tinkering and coding — that's where it learns to make them
   if (agent.room === "game" && !agent.moving && agent.transit <= 0) {
-    agent.skills.tinkering = Math.min(100, agent.skills.tinkering + 0.035 * dt);
+    agent.skills.tinkering = Math.min(100, agent.skills.tinkering + 0.04 * dt);
+    agent.skills.coding = Math.min(100, agent.skills.coding + 0.03 * dt);
   }
 }
 
@@ -33,7 +36,7 @@ export function bumpSkill(agent, name, amount) {
 export function gates(skills) {
   const s = skills || freshSkills();
   return {
-    canMakeGames: s.coding >= 12, // early lives have to work a bit first
+    canMakeGames: s.coding >= 10, // early lives have to work a bit first
     canRestyle: s.tinkering >= 8,
     richRoutines: s.talking >= 25,
   };
