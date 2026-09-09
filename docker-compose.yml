@@ -3,17 +3,18 @@ services:
     build: .
     image: simyou
     restart: unless-stopped
-    # only nginx on the host talks to it
     ports:
       - "127.0.0.1:5173:5173"
     env_file: .env
     environment:
       SIMYOU_DB: /data/simyou.db
       SIMYOU_SITES: /app/sites.json
+      SIMYOU_BACKUP_DIR: /backups
     volumes:
       - ./sites.json:/app/sites.json:ro
       - simyou-data:/data
-    # hardening
+      - ./backups:/backups        # DB snapshots on the host — survive `down -v`
+    # hardening. entrypoint starts as root only to chown /data, then drops to uid 10001.
     read_only: true
     tmpfs:
       - /tmp
@@ -21,6 +22,12 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
 
 volumes:
   simyou-data:

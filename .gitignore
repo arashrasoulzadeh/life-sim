@@ -11,6 +11,8 @@ sites.json
 
 # environment
 .env
+.env.*
+!.env.example
 
 # sqlite database + WAL sidecars
 *.db
@@ -20,3 +22,6 @@ sites.json
 # legacy runtime logs / files
 llm.log
 worlds/
+
+# host-side DB backups
+backups/*.db

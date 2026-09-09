@@ -74,22 +74,32 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-The container runs as **uid 10001**, read-only rootfs, no capabilities,
-`no-new-privileges`; only `/data` (the DB volume) and `/tmp` are writable.
-`.env` and `sites.json` are mounted from the host. nginx (step 5) proxies to
-`127.0.0.1:5173`.
+The container starts as root only to `chown` the data dirs, then drops to
+**uid 10001**: read-only rootfs, `no-new-privileges`, all caps dropped except
+the few needed for that chown. Writable paths: the `simyou-data` volume (the
+DB), `./backups` (host-mounted snapshots), `/tmp`. `.env` and `sites.json` are
+mounted from the host.
 
-Update: `git pull && docker compose up -d --build`.
+Update: `git pull && docker compose up -d --build` — that's it. **Never add
+`-v`** — `docker compose down -v` destroys the DB volume.
 
-**Migrating an existing life into the volume** (volume is `<dir>_simyou-data`):
+### Backups & restore
+
+The server writes a `VACUUM INTO` snapshot to `./backups/` every 30 min (and on
+shutdown), keeping the last 16. These live on the host, so they survive even an
+accidental `down -v`.
+
+Restore any snapshot (or the old systemd `simyou.db`) with:
 ```bash
-docker compose up -d --build && docker compose stop
-docker run --rm --user root -v life-sim_simyou-data:/data -v "$PWD":/host:ro alpine \
-  sh -c 'cp /host/simyou.db* /data/ 2>/dev/null; chown -R 10001:10001 /data'
-docker compose start
+deploy/restore-db.sh backups/3230-2026-09-09T10-00-00-000Z.db
 ```
-The `chown 10001` is required — without it the container hits *"attempt to
-write a readonly database"*.
+It stops the container, copies the file in, fixes ownership, and starts again —
+no `-v`, no data loss.
+
+Migrating an old life in for the first time is the same command:
+```bash
+deploy/restore-db.sh ~/life-sim/simyou.db
+```
 
 ### 4b. Run it — systemd (no Docker)
 
@@ -125,18 +135,28 @@ Open https://life.meetarash.ir — the life is already living. Click once for so
 # your machine
 git push
 
-# the server
-cd /home/ubuntu/life-sim
-git pull
-sudo systemctl restart simyou
+# the server — one command, never loses data
+cd ~/life-sim && deploy/update.sh
 ```
 
-State (bank, memories, rooms, day, personality…) is persisted every 5s and on
-shutdown, and resumed from SQLite on start — a restart never loses the life.
+`update.sh` runs `git pull` then `docker compose up -d --build` (or
+`systemctl restart`). **It never runs `docker compose down -v`.** The DB volume
+`simyou-data` is untouched by a rebuild; state (bank, memories, rooms, day,
+personality…) is persisted every 5 s and on shutdown and resumed on start.
 `.env` and `sites.json` are untracked, so `git pull` leaves them alone.
 
-If a deploy changes `deploy/simyou.service` or the nginx conf, re-copy that file
-and `daemon-reload` / `nginx -s reload`.
+### Your data is safe on a rerun
+
+| command | DB |
+|---|---|
+| `docker compose up -d --build` | **kept** (volume survives image rebuild) |
+| `docker compose restart` / `stop` / `start` | **kept** |
+| `docker compose down` | **kept** (volume is not removed) |
+| `docker compose down -v` | ❌ **DELETED** — never run this |
+
+On top of that the server writes a `VACUUM INTO` snapshot to **`./backups/`** on
+the host every 30 min and on shutdown (last 16 kept). Restore any of them, or an
+old `simyou.db`, with `deploy/restore-db.sh <file>` — no `-v`, no loss.
 
 ---
 
@@ -149,9 +169,12 @@ and `daemon-reload` / `nginx -s reload`.
 | the memories (infinite) | `sqlite3 … 'select txt,trait,weight,archived from memories order by weight desc limit 40;'` |
 | the games it wrote | `sqlite3 … 'select id,title,created_day,plays,bytes from games;'` |
 | every LLM call | `sqlite3 … 'select ts,phase,status,content from llm_calls order by rowid desc limit 20;'` |
-| pause the API spend | `SIMYOU_DIALOGUE=off` in `.env`, `systemctl restart simyou` (offline voice takes over) |
-| change the sites | edit `/home/ubuntu/life-sim/sites.json`, `systemctl restart simyou` |
-| start the life over | `systemctl stop simyou`; `sqlite3 … "delete from state where seed='<seed>'"` (or delete the db); `systemctl start simyou` |
+| pause the API spend | `SIMYOU_DIALOGUE=off` in `.env`, restart (offline voice takes over) |
+| change the sites | edit `sites.json`, `docker compose restart` |
+| fast-forward the life 10 days (all chores/buys/games run) | set `SIMYOU_ADMIN_TOKEN` in `.env`, then `SIMYOU_ADMIN_TOKEN=… deploy/advance.sh 10` |
+| force a conversation now | `curl -s -XPOST 127.0.0.1:5173/api/admin/say -d '{"phase":"evening","token":"…"}'` |
+| snapshot the DB now | `curl -s -XPOST 127.0.0.1:5173/api/admin/backup -d '{"token":"…"}'` — lands in `./backups/` |
+| start the life over | stop, `deploy/restore-db.sh` an empty/older DB, or `sqlite3 … "delete from state"` then start |
 
 ## Cost
 

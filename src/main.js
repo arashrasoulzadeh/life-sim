@@ -376,10 +376,16 @@ function toggleMute() {
 
 function hitObject(room, px, py) {
   const list = roomMeta[room] || [];
+  let best = null;
+  let bestD = 40; // generous — grid emojis are tiny
   for (const o of list) {
-    if (Math.hypot(o.x * 512 - px, o.y * PLAYFIELD_H - py) < 26) return o;
+    const d = Math.hypot(o.x * 512 - px, o.y * PLAYFIELD_H - py);
+    if (d < bestD) {
+      bestD = d;
+      best = o;
+    }
   }
-  return null;
+  return best;
 }
 
 canvas.addEventListener("click", (e) => {

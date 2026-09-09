@@ -10,7 +10,7 @@
 
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, unlinkSync, mkdirSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes } from "node:crypto";
@@ -34,6 +34,7 @@ const GAP_KEY = process.env.SIMYOU_GAPGPT_KEY || "";
 const GAP_BASE = process.env.SIMYOU_GAPGPT_BASE || "https://api.gapgpt.app/v1";
 const GAP_MODEL = process.env.SIMYOU_GAPGPT_MODEL || "gpt-4o-mini";
 const DIALOGUE_ON = (process.env.SIMYOU_DIALOGUE || "on") !== "off";
+const ADMIN_TOKEN = process.env.SIMYOU_ADMIN_TOKEN || "";
 
 const BASE_RATE = (3 / (24 * 60)) * DAY_LENGTH; // sim-seconds per real second (3 in-game min/sec)
 const REAL_SECS_PER_DAY = DAY_LENGTH / BASE_RATE; // ~480
@@ -68,9 +69,24 @@ const SEED_TAG = createHash("sha256").update("simyou:" + SEED).digest("hex").sli
 const GAME_JS = readFileSync(join(ROOT, "src/game/game.js"), "utf8");
 
 // ---------- database ----------
-const db = new DatabaseSync(DB_PATH);
+let db;
+try {
+  db = new DatabaseSync(DB_PATH);
+  db.exec("PRAGMA journal_mode = WAL");
+} catch (e) {
+  if (/readonly|unable to open|SQLITE_CANTOPEN/i.test(String(e.message))) {
+    console.error(
+      `\n[simyou] cannot write ${DB_PATH}\n` +
+        `The data directory is owned by the wrong user (a migrated DB is usually root-owned).\n` +
+        `Fix it once:\n` +
+        `  docker compose down\n` +
+        `  docker run --rm --user root -v "$(basename "$PWD")_simyou-data":/data alpine chown -R 10001:10001 /data\n` +
+        `  docker compose up -d\n`,
+    );
+  }
+  throw e;
+}
 db.exec(`
-  PRAGMA journal_mode = WAL;
   PRAGMA auto_vacuum = INCREMENTAL;
   CREATE TABLE IF NOT EXISTS state (seed TEXT PRIMARY KEY, snapshot TEXT NOT NULL, updated TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS memories (
@@ -91,6 +107,38 @@ db.exec(`
 `);
 // migrate older DBs missing the reply column
 try { db.exec(`ALTER TABLE conversations ADD COLUMN reply TEXT`); } catch { /* already there */ }
+
+// ---------- backups (host-side, so they survive `docker compose down -v`) ----------
+const BACKUP_DIR = process.env.SIMYOU_BACKUP_DIR || "";
+const BACKUP_EVERY_MS = Math.max(5, Number(process.env.SIMYOU_BACKUP_MIN || 30)) * 60000;
+const BACKUP_KEEP = Math.max(3, Number(process.env.SIMYOU_BACKUP_KEEP || 16));
+
+function backup(reason = "timer") {
+  if (!BACKUP_DIR) return;
+  try {
+    mkdirSync(BACKUP_DIR, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const file = join(BACKUP_DIR, `${SEED}-${stamp}.db`);
+    db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+    const mine = readdirSync(BACKUP_DIR)
+      .filter((n) => n.startsWith(SEED + "-") && n.endsWith(".db"))
+      .sort();
+    for (const old of mine.slice(0, -BACKUP_KEEP)) {
+      try {
+        unlinkSync(join(BACKUP_DIR, old));
+      } catch {
+        /* ignore */
+      }
+    }
+    console.log(`[simyou] backup (${reason}) -> ${file}  (keeping ${Math.min(mine.length, BACKUP_KEEP)})`);
+  } catch (e) {
+    console.error("[simyou] backup failed:", e.message);
+  }
+}
+if (BACKUP_DIR) {
+  setTimeout(() => backup("startup"), 20000);
+  setInterval(() => backup("timer"), BACKUP_EVERY_MS);
+}
 
 const Q = {
   loadState: db.prepare(`SELECT snapshot FROM state WHERE seed=?`),
@@ -457,8 +505,53 @@ function sizeGuard() {
 let acc = 0;
 let lastTick = Date.now();
 let prevDay = world.day;
+let paused = false; // set while an admin fast-forward runs
+
+// after ticking, run the daily rollover + dialogue side-effects (shared with advance)
+function postTick() {
+  if (world.day !== prevDay) {
+    prevDay = world.day;
+    regenRooms(true);
+    persistRooms();
+    onNewDayServer();
+  }
+}
+
+// advance the whole life by `n` in-game days as fast as possible — every dawn /
+// dusk conversation still fires (buys, sells, games, routines, memory).
+async function advanceDays(n) {
+  paused = true;
+  const target = world.day + n;
+  let guard = 0;
+  try {
+    while (world.day < target && guard++ < n * 40000) {
+      tick(world, FIXED_DT);
+      postTick();
+      if (world.dialogueRequest && !dialogueBusy) {
+        const phase = world.dialogueRequest;
+        world.dialogueRequest = null;
+        await runDialogue(phase);
+      }
+      if (guard % 4000 === 0) await new Promise((r) => setImmediate(r));
+    }
+    drainFx(world);
+    persistState();
+    persistBank();
+    persistMemories();
+    persistRooms();
+    backup("advance");
+  } finally {
+    lastTick = Date.now();
+    acc = 0;
+    paused = false;
+  }
+}
 
 setInterval(() => {
+  if (paused) {
+    lastTick = Date.now();
+    return;
+  }
   const now = Date.now();
   let dtReal = (now - lastTick) / 1000;
   lastTick = now;
@@ -484,12 +577,7 @@ setInterval(() => {
     }
   }
 
-  if (world.day !== prevDay) {
-    prevDay = world.day;
-    regenRooms(true);
-    persistRooms();
-    onNewDayServer();
-  }
+  postTick();
 
   if (world.dialogueRequest && !dialogueBusy) {
     const phase = world.dialogueRequest;
@@ -728,6 +816,41 @@ const server = createServer(async (req, res) => {
     return res.end(html);
   }
 
+  // ---- admin (gated by SIMYOU_ADMIN_TOKEN) ----
+  if (path.startsWith("/api/admin/") && req.method === "POST") {
+    const body = safeParse(await readBody(req), {});
+    const tok = body.token || new URL(req.url, "http://x").searchParams.get("token");
+    if (!ADMIN_TOKEN || tok !== ADMIN_TOKEN) {
+      res.writeHead(403);
+      return res.end("forbidden (set SIMYOU_ADMIN_TOKEN and pass ?token=)");
+    }
+    if (path === "/api/admin/advance") {
+      if (paused) {
+        res.writeHead(409);
+        return res.end("already advancing");
+      }
+      const days = Math.max(1, Math.min(60, Math.round(Number(body.days) || 1)));
+      const from = world.day;
+      const t0 = Date.now();
+      await advanceDays(days);
+      return sendJSON(
+        res,
+        JSON.stringify({ ok: true, from, to: world.day, bank: Math.round(world.bank), games: world.gamesCount || 0, ms: Date.now() - t0 }),
+      );
+    }
+    if (path === "/api/admin/say") {
+      const phase = body.phase === "morning" ? "morning" : "evening";
+      if (!dialogueBusy) await runDialogue(phase);
+      return sendJSON(res, JSON.stringify({ ok: true, phase, bank: Math.round(world.bank) }));
+    }
+    if (path === "/api/admin/backup") {
+      backup("manual");
+      return sendJSON(res, JSON.stringify({ ok: true, dir: process.env.SIMYOU_BACKUP_DIR || null }));
+    }
+    res.writeHead(404);
+    return res.end();
+  }
+
   if (path === "/api/impression" && req.method === "POST") {
     const body = safeParse(await readBody(req), {});
     const site = siteById.get(String(body.site || ""));
@@ -795,6 +918,7 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
     persistBank();
     persistMemories();
     persistRooms();
+    backup("shutdown");
     try {
       db.close();
     } catch {

@@ -9,4 +9,7 @@ config.js
 config.local.js
 llm.log
 worlds
-deploy
+backups
+deploy/DEPLOY.md
+deploy/*.conf
+deploy/*.service
