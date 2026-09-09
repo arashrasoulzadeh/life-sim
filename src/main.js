@@ -339,43 +339,104 @@ for (const id of Object.keys(dlgs)) {
   });
 }
 
+const esc = (s) => String(s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c]);
+const KIND_LABEL = {
+  reward: "daily reward", view: "viewers", sale: "sold something",
+  upkeep: "upkeep", rent: "rent", spend: "bought something", init: "opening balance",
+};
+function signCell(n) {
+  const r = Math.round(n);
+  if (r > 0) return `<td class="num pos">+${r}</td>`;
+  if (r < 0) return `<td class="num neg">${r}</td>`;
+  return `<td class="num dim">0</td>`;
+}
 async function openEcon() {
   dlgs.econ.showModal();
   const body = $("econ-body");
-  body.textContent = "loading…";
+  body.innerHTML = "loading…";
   try {
     const [daily, ledger] = await Promise.all([
       fetch("/api/daily").then((r) => r.json()),
       fetch("/api/ledger").then((r) => r.json()),
     ]);
-    const rows = daily
-      .map((d) => `day ${d.day}   +${Math.round(d.income)}   −${Math.round(d.expense)}   net ${Math.round(d.income - d.expense)}`)
-      .join("\n");
-    const led = ledger
-      .slice(0, 18)
-      .map((l) => `${l.ts.slice(5, 16).replace("T", " ")}  ${l.amount > 0 ? "+" : ""}${Math.round(l.amount)}  ${l.note}`)
-      .join("\n");
-    body.textContent = `BANK ${world ? world.bank : "?"} coins\n\nspend / income per day\n${rows || "  (nothing yet)"}\n\nledger\n${led || "  (nothing yet)"}`;
+    const bank = world ? world.bank : 0;
+    const inToday = world ? world.incomeToday || 0 : 0;
+    const outToday = world ? world.expensesToday || 0 : 0;
+
+    const dailyRows = daily.length
+      ? daily
+          .map((d) => {
+            const net = (d.income || 0) - (d.expense || 0);
+            return `<tr><td class="dim">day ${d.day}</td><td class="num pos">+${Math.round(d.income)}</td><td class="num neg">−${Math.round(d.expense)}</td>${signCell(net)}</tr>`;
+          })
+          .join("")
+      : `<tr><td colspan="4" class="dim">nothing yet</td></tr>`;
+
+    const ledRows = ledger.length
+      ? ledger
+          .slice(0, 40)
+          .map((l) => {
+            const when = l.ts.slice(5, 16).replace("T", " ");
+            const income = l.amount >= 0;
+            const tag = `<span class="econ-tag ${income ? "in" : "out"}">${esc(KIND_LABEL[l.kind] || l.kind)}</span>`;
+            return `<tr><td class="dim">${esc(when)}</td><td>${tag}</td><td>${esc(l.note || "")}</td>${signCell(l.amount)}</tr>`;
+          })
+          .join("")
+      : `<tr><td colspan="4" class="dim">nothing yet</td></tr>`;
+
+    body.innerHTML = `
+      <div class="econ-head">
+        <span class="econ-bank">◊ ${Math.round(bank)}<small>in the bank</small></span>
+        <span class="econ-pill">today <span class="up">+${Math.round(inToday)}</span> / <span class="down">−${Math.round(outToday)}</span></span>
+      </div>
+      <div class="econ-section">PER DAY</div>
+      <div class="econ-scroll">
+        <table class="econ">
+          <thead><tr><th>day</th><th class="num">in</th><th class="num">out</th><th class="num">net</th></tr></thead>
+          <tbody>${dailyRows}</tbody>
+        </table>
+      </div>
+      <div class="econ-section">LEDGER</div>
+      <div class="econ-scroll">
+        <table class="econ">
+          <thead><tr><th>when</th><th>entry</th><th>reason</th><th class="num">amount</th></tr></thead>
+          <tbody>${ledRows}</tbody>
+        </table>
+      </div>`;
   } catch {
-    body.textContent = "couldn't load";
+    body.innerHTML = `<span class="dim">couldn't load</span>`;
   }
 }
 
 async function openShop() {
   dlgs.shop.showModal();
   const body = $("shop-body");
-  body.textContent = "loading…";
+  body.innerHTML = "loading…";
   try {
     const m = await fetch("/api/market").then((r) => r.json());
-    body.textContent = Object.entries(m)
-      .map(
-        ([cat, items]) =>
-          `[${cat.toUpperCase()}]  ${items.length} items\n` +
-          items.map((o) => `  ${o.glyph} ${o.label.padEnd(22)} ${String(o.price).padStart(4)}c   → ${o.room}`).join("\n"),
-      )
-      .join("\n\n");
+    const owned = new Set();
+    for (const meta of Object.values(roomMeta)) for (const o of meta || []) owned.add(o.id);
+
+    body.innerHTML = `<div class="shop-scroll">${Object.entries(m)
+      .map(([cat, items]) => {
+        const cells = items
+          .slice()
+          .sort((a, b) => a.price - b.price)
+          .map(
+            (o) =>
+              `<div class="shop-item${owned.has(o.id) ? " owned" : ""}">
+                 <span class="g">${o.glyph}</span>
+                 <span class="n">${esc(o.label)}</span>
+                 <span class="p">◊ ${o.price}</span>
+                 <span class="r">${esc(o.room)}</span>
+               </div>`,
+          )
+          .join("");
+        return `<div class="shop-cat">${esc(cat.toUpperCase())} <span>· ${items.length}</span></div><div class="shop-grid">${cells}</div>`;
+      })
+      .join("")}</div>`;
   } catch {
-    body.textContent = "couldn't load";
+    body.innerHTML = `<span class="dim">couldn't load</span>`;
   }
 }
 
@@ -383,17 +444,18 @@ async function openGameCode() {
   if (!world?.latestGameId) return;
   dlgs.gamecode.showModal();
   const body = $("gamecode-body");
-  body.textContent = "loading…";
+  body.innerHTML = "loading…";
   try {
-    const g = await fetch(`/api/games/${world.latestGameId}`).then((r) => r.json());
-    body.textContent =
-      `"${g.title}"  ·  day ${g.createdDay}  ·  ${g.plays} plays\n\n` +
-      `This game runs a built-in kernel — the AI only chose the numbers.\n` +
-      `No custom code is ever stored or executed. Zoom into the game room to play.\n\n` +
-      g.describe +
-      `\n\nspec:\n${JSON.stringify(g.spec, null, 2)}`;
+    const id = world.latestGameId;
+    const g = await fetch(`/api/games/${id}`).then((r) => r.json());
+    body.innerHTML = `
+      <div class="gc-meta"><b>${esc(g.title)}</b> · day ${g.createdDay} · ${g.plays} plays</div>
+      <iframe class="gc-preview" src="/games/${id}" title="game preview"
+              sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy"></iframe>
+      <div class="gc-note">${esc(g.describe || "")}<br>The AI only picks a built-in kernel and its numbers — no custom code is ever stored or run.</div>
+      <pre class="gc-spec">${esc(JSON.stringify(g.spec, null, 2))}</pre>`;
   } catch {
-    body.textContent = "couldn't load";
+    body.innerHTML = `<span class="dim">couldn't load</span>`;
   }
 }
 

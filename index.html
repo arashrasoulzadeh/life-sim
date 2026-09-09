@@ -20,7 +20,7 @@
         display: flex; flex-direction: column; gap: 6px;
         width: min(90vmin, 768px); font-size: 12px; letter-spacing: 0.04em;
       }
-      #topbar .bar { display: flex; align-items: center; gap: 10px; min-height: 24px; }
+      #topbar .bar { display: flex; align-items: center; gap: 10px; min-height: 24px; flex-wrap: wrap; }
       #topbar b { color: #e6e9f0; letter-spacing: 0.14em; font-size: 12px; }
       #topbar .grow { flex: 1; }
 
@@ -29,10 +29,10 @@
       #conn[data-state="wait"] { background: #e0b45c; }
       #conn[data-state="off"] { background: #e06a5c; }
 
-      #tb-who { color: #9aa3b3; font-size: 11px; }
+      #tb-who { color: #9aa3b3; font-size: 11px; white-space: nowrap; }
 
       /* live stats — right side of row 1 */
-      #topbar .stats { display: flex; align-items: center; gap: 4px; }
+      #topbar .stats { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
       #topbar .stat {
         display: inline-flex; align-items: baseline; gap: 4px;
         padding: 2px 8px; border-radius: 4px; background: #14181f;
@@ -132,6 +132,76 @@
         max-height: 60vh; overflow: auto;
       }
       dialog .close { margin-top: 10px; float: right; background: #1f2530; border-color: #3d4655; }
+      dialog .dim { color: #6b7686; }
+
+      /* money dialog */
+      #econ { max-width: 560px; }
+      .econ-head {
+        display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+        padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid #232a33;
+      }
+      .econ-bank { font-size: 22px; color: #f0c674; font-variant-numeric: tabular-nums; }
+      .econ-bank small { font-size: 11px; color: #7f8a9c; margin-left: 4px; }
+      .econ-pill {
+        font-size: 11px; padding: 2px 8px; border-radius: 4px;
+        background: #14181f; border: 1px solid #232a33; color: #aab2be;
+        font-variant-numeric: tabular-nums;
+      }
+      .econ-pill .up { color: #7ad0a0; }
+      .econ-pill .down { color: #e0715c; }
+      .econ-section { margin: 14px 0 6px; font-size: 11px; letter-spacing: 0.1em; color: #7f8a9c; }
+      table.econ { width: 100%; border-collapse: collapse; font-size: 12px; }
+      table.econ th {
+        text-align: left; font-weight: normal; color: #6b7686; font-size: 10px;
+        letter-spacing: 0.08em; padding: 4px 8px; border-bottom: 1px solid #232a33;
+      }
+      table.econ th.num, table.econ td.num { text-align: right; font-variant-numeric: tabular-nums; }
+      table.econ td { padding: 5px 8px; border-bottom: 1px solid #1a1f27; color: #c3c8d2; }
+      table.econ tbody tr:hover td { background: #161b22; }
+      table.econ .pos { color: #7ad0a0; }
+      table.econ .neg { color: #e0715c; }
+      table.econ .dim { color: #6b7686; }
+      .econ-tag {
+        display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px;
+        background: #232a33; color: #aab2be; letter-spacing: 0.04em;
+      }
+      .econ-tag.in { background: #1f3a2c; color: #9ee6c0; }
+      .econ-tag.out { background: #3a2420; color: #e6a79e; }
+      .econ-scroll { max-height: 46vh; overflow: auto; margin-top: 4px; }
+
+      /* shop grid */
+      #shop { max-width: 620px; }
+      .shop-cat { margin: 12px 0 6px; font-size: 11px; letter-spacing: 0.1em; color: #7f8a9c; }
+      .shop-cat span { color: #5c6673; }
+      .shop-grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 6px;
+      }
+      .shop-item {
+        display: flex; flex-direction: column; gap: 2px; padding: 8px;
+        background: #14181f; border: 1px solid #232a33; border-radius: 6px;
+      }
+      .shop-item .g { font-size: 20px; line-height: 1; }
+      .shop-item .n { font-size: 11px; color: #d4d9e2; }
+      .shop-item .p { font-size: 11px; color: #f0c674; font-variant-numeric: tabular-nums; }
+      .shop-item .r { font-size: 9px; color: #6b7686; letter-spacing: 0.06em; text-transform: uppercase; }
+      .shop-item.owned { border-color: #3d6b52; background: #16211b; }
+      .shop-item.owned .n::after { content: " ✓"; color: #7ad0a0; }
+      .shop-scroll { max-height: 56vh; overflow: auto; margin-top: 4px; }
+
+      /* game code dialog */
+      .gc-meta { font-size: 12px; color: #aab2be; margin-bottom: 10px; }
+      .gc-meta b { color: #e6e9f0; }
+      .gc-preview {
+        width: 100%; aspect-ratio: 4 / 3; border: 1px solid #232a33; border-radius: 6px;
+        background: #05070a; display: block;
+      }
+      .gc-note { font-size: 11px; color: #7f8a9c; margin: 8px 0; }
+      .gc-spec {
+        margin: 0; background: #0e1116; border: 1px solid #232a33; border-radius: 6px;
+        padding: 10px; font: 11px ui-monospace, Menlo, monospace; color: #9ee6c0;
+        white-space: pre-wrap; word-break: break-word; max-height: 32vh; overflow: auto;
+      }
     </style>
   </head>
   <body>
@@ -190,20 +260,20 @@
 
     <dialog id="econ">
       <h2>MONEY — SPEND / INCOME</h2>
-      <pre id="econ-body">…</pre>
+      <div id="econ-body">…</div>
       <button class="close" id="econ-close">close</button>
     </dialog>
 
     <dialog id="gamecode">
       <h2>GAME CODE</h2>
-      <pre id="gamecode-body">…</pre>
+      <div id="gamecode-body">…</div>
       <button class="close" id="gamecode-close">close</button>
     </dialog>
 
     <dialog id="shop">
       <h2>MARKETPLACE</h2>
-      <p style="color:#7f8a9c">Only the AI buys — this is what it can choose from. ~200 things in four categories.</p>
-      <pre id="shop-body">…</pre>
+      <p style="color:#7f8a9c">Only the AI buys — this is what it can choose from. ✓ means it's already in the flat.</p>
+      <div id="shop-body">…</div>
       <button class="close" id="shop-close">close</button>
     </dialog>
 
