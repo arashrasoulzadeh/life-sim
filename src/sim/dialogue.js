@@ -10,6 +10,10 @@ import { ROUTINE_OPS } from "./agent.js";
 import { KERNELS, validateSpec } from "../game/kernels.js";
 import { gates } from "./skills.js";
 import { GOAL_METRICS, makeGoal, goalFrac } from "./goals.js";
+import { setWeekStyle } from "./rhythm.js";
+import { namePet, petLabel } from "./pet.js";
+
+const VOTE_LABELS = { work: "work hard", rest: "rest & recover", social: "reach out to others", learn: "learn something", tend: "tend the home" };
 
 export const GAME_COST = 0; // making a game is free — it only costs the AI a decision
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -61,6 +65,12 @@ export function buildPrompt(w, phase, ctx = {}) {
     ? "People left notes on the guestbook:\n" + ctx.notes.map((n) => `  ${n.name || "someone"}: ${n.text}`).join("\n")
     : "";
   const dreamLine = w.slept && w.dream && w.dream.day >= w.day - 1 ? `Last night you half-dreamed: ${w.dream.text}` : "";
+  const rh = w.rhythm || {};
+  const rhythmLine = `Today is ${rh.dowName || "Mon"}${rh.weekend ? " (weekend)" : ""}${rh.badDay ? " — a heavy, off day" : ""}.${rh.weekStyle ? ` Your week, in your words: "${rh.weekStyle}".` : ""}`;
+  const petLine = `${petLabel(w.pet)} is around (bond ${Math.round((w.pet?.bond || 0) * 100)}%).${w.pet && !w.pet.name ? " It still has no name." : ""}`;
+  const voteLine = ctx.voteResult
+    ? `Yesterday viewers voted for you to: ${VOTE_LABELS[ctx.voteResult.choice] || ctx.voteResult.choice} (${ctx.voteResult.count} votes). You can heed it or not.`
+    : "";
 
   const commonRules = [
     `roomOrder: the six room ids ${JSON.stringify(ROOM_IDS)} in a new order, or null.`,
@@ -100,10 +110,12 @@ export function buildPrompt(w, phase, ctx = {}) {
         "Reply with ONLY a JSON object:",
         '{"line": string <=140, "reply": string <=240, "quote": string <=140, "dream": string <=200 or null,',
         `  "goal": {"text": string, "metric": one of ${Object.keys(GOAL_METRICS).join("|")}, "target": number} or null,`,
+        '  "petName": string <=16 or null, "weekStyle": string <=80 or null, "votePrompt": string <=80 or null,',
         '  "roomOrder": [...] or null, "look": {...} or null, "newMemory": {...} or null}',
         `quote: a short "quote of the day" from this life's own history.`,
         `dream: narrate last night's dream in one or two sentences (surreal, from your memories), or null.`,
         `goal: set a multi-day goal for yourself if you don't have one — small and concrete. It's checked each day.`,
+        `petName: name the cat if it has none (or rename it). weekStyle: one line on how you want your week to feel. votePrompt: a short question to put to viewers today.`,
         "If people left notes on the guestbook, you may react to one in your line/reply.",
         ...commonRules,
       ].join("\n");
@@ -115,6 +127,9 @@ export function buildPrompt(w, phase, ctx = {}) {
     `Mood ${w.mood.valence.toFixed(2)}. Reputation ${Math.round(w.reputation)}/100. Weather ${w.weather.sky}. Season: ${w.outside?.season || "spring"} (neighbour lately: ${w.outside?.neighbour || "—"}).`,
     `Skills: writing ${Math.round(sk.writing || 0)}, coding ${Math.round(sk.coding || 0)}, tinkering ${Math.round(sk.tinkering || 0)}, talking ${Math.round(sk.talking || 0)}.`,
     goalLine,
+    rhythmLine,
+    petLine,
+    voteLine,
     `Bank ${Math.round(w.bank)}c. Yesterday earned ${Math.round(w.incomeYesterday)}, spent ${Math.round(w.expensesYesterday)}.`,
     `${phase === "morning" ? "Yesterday" : "Today"}: ${t.resolved} requests done, lowest focus ${Math.round(t.minFocus)}, lowest social ${Math.round(t.minSocial)}, ${t.windowEvents} things at the window.`,
     dreamLine,
@@ -229,6 +244,14 @@ export function applyMorning(w, resp) {
       out.changes.push(`◎ goal: ${ng.text}`);
     }
   }
+
+  const petnamed = namePet(w, resp?.petName);
+  if (petnamed) out.changes.push(`🐈 named the cat ${petnamed}`);
+  const ws = setWeekStyle(w, resp?.weekStyle);
+  if (ws) out.changes.push(`🗓 week: ${ws}`);
+  const vp = str(resp?.votePrompt, 80).replace(/[<>]/g, "").trim();
+  if (vp.length >= 5) out.votePrompt = vp;
+
   if (applyReorder(w, resp?.roomOrder)) out.changes.push("↻ rooms reordered");
   out.look = applyLook(w, resp?.look);
   if (out.look) out.changes.push("🎨 changed appearance");

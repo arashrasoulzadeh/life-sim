@@ -27,6 +27,7 @@ let moodPush = 0;
 let prevAgentRoom = null;
 let lastTs = performance.now();
 const display = { x: 256, y: 300, has: false };
+let petDisplay = { room: null, x: 350, y: 330 };
 
 const ui = {
   debug: new URLSearchParams(location.search).has("debug"),
@@ -235,11 +236,30 @@ function frame(now) {
     display.y += (dy / dist) * step;
   }
 
+  // glide the cat too
+  let pet = world.pet;
+  if (pet) {
+    if (petDisplay.room !== pet.room) {
+      petDisplay = { room: pet.room, x: pet.x, y: pet.y };
+    } else {
+      const pdx = pet.x - petDisplay.x;
+      const pdy = pet.y - petDisplay.y;
+      const pd = Math.hypot(pdx, pdy);
+      if (pd > 0.5) {
+        const s = Math.min(pd, 34 * dt);
+        petDisplay.x += (pdx / pd) * s;
+        petDisplay.y += (pdy / pd) * s;
+      }
+    }
+    pet = { ...pet, x: petDisplay.x, y: petDisplay.y };
+  }
+
   const w = {
     ...world,
     started: true,
     roomOrder,
     agent: { ...a, x: display.x, y: display.y },
+    pet,
     conversation: { ...world.conversation, log: convLog },
   };
   if (audioReady && Audio.isReady()) {
@@ -260,6 +280,10 @@ function frame(now) {
     const unread = world.notesUnread || 0;
     gbtn.textContent = unread ? `guestbook (${unread})` : "guestbook";
   }
+  const dayEl = $("tb-day");
+  if (dayEl && world.rhythm) {
+    dayEl.textContent = `${world.rhythm.dowName || ""}${world.rhythm.badDay ? " · off day" : world.rhythm.weekend ? " · weekend" : ""}`;
+  }
   tbTok.textContent = `◊ ${world.bank} coins`;
   tbQuote.textContent = world.quote?.text ? world.quote.text : "a life that runs itself";
   if (ui.notice && performance.now() > ui.notice.until) ui.notice = null;
@@ -268,7 +292,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // ---------- panels ----------
-const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo"), guest: $("guest") };
+const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo"), guest: $("guest"), vote: $("vote"), journal: $("journal") };
 $("about-btn").addEventListener("click", () => dlgs.about.showModal());
 for (const id of Object.keys(dlgs)) {
   if (!dlgs[id]) continue;
@@ -362,6 +386,84 @@ async function openGuest() {
     body.textContent = "couldn't load";
   }
 }
+async function openJournal() {
+  dlgs.journal.showModal();
+  const body = $("journal-body");
+  body.textContent = "loading…";
+  try {
+    const j = await fetch("/api/journal").then((r) => r.json());
+    const goals = (j.goals || [])
+      .map((g) => `  ${g.outcome === "done" ? "✓" : g.outcome === "failed" ? "✗" : "·"} ${g.txt}`)
+      .join("\n");
+    body.textContent = [
+      `day ${j.day} · ${j.season}${j.week ? `\nthe week: "${j.week}"` : ""}`,
+      j.pet && j.pet.name ? `the cat: ${j.pet.name} (bond ${Math.round((j.pet.bond || 0) * 100)}%)` : "",
+      "",
+      j.lifeSummary ? `LIFE SO FAR\n${j.lifeSummary}` : "",
+      "",
+      "GOALS\n" + (goals || "  (none yet)"),
+      "",
+      "WHAT STUCK\n" + (j.memories || []).map((m) => `  · ${m}`).join("\n"),
+      "",
+      "DREAMS\n" + (j.dreams || []).map((d) => `  d${d.day}: ${d.txt}`).join("\n"),
+      "",
+      "LINES IT KEPT\n" + (j.quotes || []).map((q) => `  “${q.txt}”`).join("\n"),
+    ].filter((s) => s !== "").join("\n");
+  } catch {
+    body.textContent = "couldn't load";
+  }
+}
+
+async function renderVote(data) {
+  $("vote-prompt").textContent = data.prompt || "";
+  const opts = $("vote-opts");
+  opts.innerHTML = "";
+  const total = data.total || 0;
+  for (const c of data.choices) {
+    const n = data.tally[c] || 0;
+    const pct = total ? Math.round((n / total) * 100) : 0;
+    const b = document.createElement("button");
+    b.style.cssText =
+      "text-align:left;background:" +
+      (data.mine === c ? "#1f3a2c" : "#1a1f28") +
+      ";border:1px solid " +
+      (data.mine === c ? "#3d6b52" : "#2a2f3a") +
+      ";color:#dfe4ee;border-radius:6px;padding:7px 10px;cursor:pointer;font:inherit";
+    b.textContent = `${data.labels[c] || c}  —  ${n} (${pct}%)`;
+    b.addEventListener("click", async () => {
+      $("vote-msg").textContent = "…";
+      try {
+        const r = await fetch("/api/vote", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ choice: c }),
+        }).then((x) => x.json());
+        $("vote-msg").textContent = "counted — thanks";
+        renderVote(r);
+      } catch {
+        $("vote-msg").textContent = "couldn't vote";
+      }
+    });
+    opts.appendChild(b);
+  }
+  if (data.yesterday) {
+    const y = document.createElement("div");
+    y.style.cssText = "color:#7f8a9c;font-size:12px;margin-top:4px";
+    y.textContent = `yesterday: ${data.labels[data.yesterday.choice] || data.yesterday.choice} won (${data.yesterday.count})`;
+    opts.appendChild(y);
+  }
+}
+async function openVote() {
+  dlgs.vote.showModal();
+  $("vote-msg").textContent = "";
+  try {
+    renderVote(await fetch("/api/vote").then((r) => r.json()));
+  } catch {
+    $("vote-prompt").textContent = "couldn't load the vote";
+  }
+}
+$("journal-btn")?.addEventListener("click", openJournal);
+$("vote-btn")?.addEventListener("click", openVote);
 $("guest-btn")?.addEventListener("click", openGuest);
 $("guest-send")?.addEventListener("click", async () => {
   const text = $("guest-text").value.trim();

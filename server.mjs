@@ -111,6 +111,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS goals (seed TEXT, start_day INTEGER, txt TEXT, metric TEXT, target INTEGER, outcome TEXT, end_day INTEGER, PRIMARY KEY (seed, start_day));
   CREATE TABLE IF NOT EXISTS notes (seed TEXT, ts TEXT, viewer TEXT, name TEXT, txt TEXT, read INTEGER DEFAULT 0);
   CREATE TABLE IF NOT EXISTS impressions (seed TEXT, day INTEGER, viewer TEXT, site TEXT, seconds REAL, credited REAL, PRIMARY KEY (seed, day, viewer, site));
+  CREATE TABLE IF NOT EXISTS votes (seed TEXT, day INTEGER, viewer TEXT, choice TEXT, ts TEXT, PRIMARY KEY (seed, day, viewer));
 `);
 // migrate older DBs missing the reply column
 try { db.exec(`ALTER TABLE conversations ADD COLUMN reply TEXT`); } catch { /* already there */ }
@@ -214,7 +215,60 @@ const Q = {
      ON CONFLICT(seed,day,viewer,site) DO UPDATE SET seconds=seconds+excluded.seconds, credited=credited+excluded.credited`,
   ),
   imprSiteYesterday: db.prepare(`SELECT COALESCE(SUM(seconds),0) s FROM impressions WHERE seed=? AND day=? AND site=?`),
+  voteCast: db.prepare(
+    `INSERT INTO votes (seed,day,viewer,choice,ts) VALUES (?,?,?,?,?)
+     ON CONFLICT(seed,day,viewer) DO UPDATE SET choice=excluded.choice, ts=excluded.ts`,
+  ),
+  voteTally: db.prepare(`SELECT choice, COUNT(*) c FROM votes WHERE seed=? AND day=? GROUP BY choice`),
+  voteMine: db.prepare(`SELECT choice FROM votes WHERE seed=? AND day=? AND viewer=?`),
+  voteTrim: db.prepare(`DELETE FROM votes WHERE seed=? AND day < ?`),
 };
+
+const VOTE_CHOICES = ["work", "rest", "social", "learn", "tend"];
+const VOTE_LABEL = { work: "work hard", rest: "rest & recover", social: "reach out", learn: "learn something", tend: "tend the home" };
+
+function tallyFor(day) {
+  const rows = Q.voteTally.all(String(SEED), day);
+  const tally = {};
+  let total = 0;
+  for (const r of rows) {
+    if (!VOTE_CHOICES.includes(r.choice)) continue;
+    tally[r.choice] = r.c;
+    total += r.c;
+  }
+  return { tally, total };
+}
+
+// gentle multipliers from a day's vote — winner gets a small lift, nobody is forced
+function biasFrom(day) {
+  const { tally, total } = tallyFor(day);
+  if (!total) return null;
+  const ranked = VOTE_CHOICES.slice().sort((a, b) => (tally[b] || 0) - (tally[a] || 0));
+  const bias = { work: 0.95, rest: 0.95, social: 0.95, learn: 0.95, tend: 0.95 };
+  if (tally[ranked[0]]) bias[ranked[0]] = 1.35;
+  if (tally[ranked[1]]) bias[ranked[1]] = 1.12;
+  return bias;
+}
+
+function winnerOf(day) {
+  const { tally, total } = tallyFor(day);
+  if (!total) return null;
+  let best = null;
+  for (const c of VOTE_CHOICES) if (tally[c] && (!best || tally[c] > tally[best])) best = c;
+  return best ? { choice: best, count: tally[best] } : null;
+}
+
+// set today's ballot + apply yesterday's result as a bias
+function openBallot(prompt) {
+  world.voteBias = biasFrom(world.day - 1);
+  const { tally, total } = tallyFor(world.day);
+  world.vote = {
+    day: world.day,
+    prompt: (prompt || world.vote?.prompt || "What should today be about?").slice(0, 80),
+    tally,
+    total,
+  };
+}
 
 // ---------- world load / restore ----------
 function snapshotJSON(w) {
@@ -236,8 +290,12 @@ function restore(seed, json) {
   if (!w.agent.skills) w.agent.skills = { writing: 4, coding: 4, tinkering: 4, talking: 4 };
   if (!w.outside) w.outside = { season: "spring", neighbour: "the courier who always waves", neighbourSeenDay: 0 };
   if (!w.plants) w.plants = {};
+  if (!w.rhythm || typeof w.rhythm !== "object") w.rhythm = { dow: 0, dowName: "Mon", weekend: false, badDay: false, weekStyle: "" };
+  if (!w.pet || typeof w.pet !== "object") w.pet = createWorld(seed).pet;
   if (!("goal" in w)) w.goal = null;
   if (!("dream" in w)) w.dream = null;
+  if (!("vote" in w)) w.vote = null;
+  if (!("voteBias" in w)) w.voteBias = null;
   if (!w.objDay || typeof w.objDay !== "object") {
     w.objDay = {};
     for (const r of ROOM_IDS) for (const id of w.rooms[r] || []) w.objDay[`${r}:${id}`] = w.day;
@@ -269,6 +327,7 @@ world.latestGameId = world.latestGameId || 0;
 persistRooms();
 persistMemories();
 persistBank("init", 0, "resume");
+openBallot(); // viewers can vote from the moment the server is up
 
 // ---------- gapgpt ----------
 Gap.configure({
@@ -342,6 +401,7 @@ function finishDialogue(phase, r) {
   if (r.goal) {
     try { Q.goalIns.run(String(SEED), r.goal.startDay, r.goal.text, r.goal.metric, r.goal.target); } catch { /* ignore */ }
   }
+  if (phase === "morning") openBallot(r.votePrompt);
   // the AI has seen the guestbook — mark those notes read
   if (world._noteHighWater) {
     try { Q.noteMarkRead.run(String(SEED), world._noteHighWater); } catch { /* ignore */ }
@@ -383,7 +443,8 @@ function buildCtx() {
   const unread = Q.noteUnread.all(String(SEED));
   world._noteHighWater = unread.length ? unread[unread.length - 1].rowid : 0;
   const notes = unread.map((n) => ({ name: n.name, text: n.txt }));
-  return { digests, lifeSummary: life?.txt || "", sites, gamesList, notes };
+  const voteResult = winnerOf(world.day - 1);
+  return { digests, lifeSummary: life?.txt || "", sites, gamesList, notes, voteResult };
 }
 
 // ---------- games (spec only — never code) ----------
@@ -544,6 +605,7 @@ function sizeGuard() {
       Q.llmTrim.run(String(SEED), String(SEED));
       Q.convTrim.run(String(SEED), world.day - CONV_KEEP_DAYS);
       Q.gamePrune.run(String(SEED), String(SEED));
+      Q.voteTrim.run(String(SEED), world.day - 14);
       db.exec("PRAGMA incremental_vacuum; VACUUM;");
     } else {
       db.exec("PRAGMA incremental_vacuum(200);");
@@ -679,6 +741,12 @@ function viewSnapshot() {
       : null,
     outside: { season: world.outside?.season || "spring", neighbour: world.outside?.neighbour || "" },
     plants: world.plants || {},
+    rhythm: world.rhythm || null,
+    pet: world.pet ? { kind: world.pet.kind, name: world.pet.name, room: world.pet.room, x: world.pet.x, y: world.pet.y, facing: world.pet.facing, state: world.pet.state, bond: world.pet.bond } : null,
+    vote: (() => {
+      const t = tallyFor(world.day);
+      return { day: world.day, prompt: world.vote?.prompt || "What should today be about?", choices: VOTE_CHOICES, labels: VOTE_LABEL, tally: t.tally, total: t.total, bias: world.voteBias || null };
+    })(),
     notesUnread: Q.noteUnreadCount.get(String(SEED))?.c || 0,
     agent: world.agent,
     mood: world.mood,
@@ -843,6 +911,52 @@ const server = createServer(async (req, res) => {
     world.agent.lastThought = "someone left a note…";
     return sendJSON(res, JSON.stringify({ ok: true }));
   }
+  if (path === "/api/vote") {
+    const viewer = viewerHash(req, null);
+    if (req.method === "POST") {
+      const body = safeParse(await readBody(req), {});
+      const choice = String(body.choice || "");
+      if (!VOTE_CHOICES.includes(choice)) {
+        res.writeHead(400);
+        return res.end("unknown choice");
+      }
+      try {
+        Q.voteCast.run(String(SEED), world.day, viewer, choice, new Date().toISOString());
+      } catch {
+        /* ignore */
+      }
+      world.fx.push("event");
+    }
+    const t = tallyFor(world.day);
+    const mine = Q.voteMine.get(String(SEED), world.day, viewer)?.choice || null;
+    return sendJSON(res, JSON.stringify({
+      day: world.day,
+      prompt: world.vote?.prompt || "What should today be about?",
+      choices: VOTE_CHOICES,
+      labels: VOTE_LABEL,
+      tally: t.tally,
+      total: t.total,
+      mine,
+      yesterday: winnerOf(world.day - 1),
+    }));
+  }
+
+  if (path === "/api/journal") {
+    const life = Q.lifeGet.get(String(SEED));
+    return sendJSON(res, JSON.stringify({
+      day: world.day,
+      season: world.outside?.season || "spring",
+      week: world.rhythm?.weekStyle || "",
+      pet: world.pet ? { name: world.pet.name, bond: world.pet.bond } : null,
+      lifeSummary: life?.txt || "",
+      digests: Q.digestRecent.all(String(SEED)).map((d) => ({ month: d.month, summary: d.summary })),
+      memories: Q.memTopActive.all(String(SEED)).map((m) => m.txt),
+      goals: Q.goalList.all(String(SEED)),
+      dreams: Q.dreamList.all(String(SEED)).slice(0, 12),
+      quotes: Q.quoteList.all(String(SEED)).slice(0, 12),
+    }));
+  }
+
   if (path === "/api/conversations") {
     return sendJSON(
       res,

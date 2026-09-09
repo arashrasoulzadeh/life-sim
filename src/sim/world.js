@@ -13,6 +13,10 @@ import { checkGoal } from "./goals.js";
 import { freshOutside, stepOutside, windowEventPool } from "./outside.js";
 import { tickPlants, plantsNewDay, thirstyIn, water as waterPlant } from "./plants.js";
 import { weaveDream } from "./dreams.js";
+import { freshRhythm, stepRhythm, rollRhythm, rhythmMods } from "./rhythm.js";
+import { freshPet, stepPet, petBond } from "./pet.js";
+
+const MICROS = ["stretch", "glance", "sip", "hum", "shift", "yawn", "tidy"];
 
 export const START_BANK = 200; // seed coins
 
@@ -77,6 +81,10 @@ export function createWorld(seed) {
     dream: null, // { text, day }
     outside: freshOutside(rng), // { season, neighbour, neighbourSeenDay }
     plants: {}, // "room:id" -> { water, since, dryDays }
+    rhythm: freshRhythm(), // { dow, dowName, weekend, badDay, weekStyle }
+    pet: freshPet(rng), // the cat — its own little loop
+    vote: null, // { day, prompt, tally:{}, total } — set by the server each morning
+    voteBias: null, // { work, rest, social, learn, tend } multipliers from yesterday's vote
     slept: false, // asleep at some point last night — feeds the morning dream
     conversation: { log: [], bubble: null, lastMorningDay: 0, lastEveningDay: 0 },
     roomDocs: {},
@@ -133,7 +141,26 @@ export function tick(w, dt) {
   decayNeeds(w.agent.needs, w.agent.personality, dt, w.isNight, w.era.decayMul);
   tickSkills(w.agent, dt);
   tickPlants(w, dt, DAY_LENGTH);
+  stepRhythm(w);
+  stepPet(w, dt, w.rng);
   if (w.isNight && w.agent.action && w.agent.action.id === "sleep") w.slept = true;
+
+  // idle micro-behaviours — small in-between moments while settled in a room
+  if (!w.agent.moving && w.agent.transit <= 0) {
+    w.agent._fidget = (w.agent._fidget ?? w.rng.range(3, 8)) - dt;
+    if (w.agent._fidget <= 0) {
+      w.agent._fidget = w.rng.range(5, 12);
+      if (!w.isNight) w.agent.micro = { kind: w.rng.pick(MICROS), ttl: w.rng.range(1.2, 2.8) };
+    }
+  }
+  if (w.agent.micro) {
+    w.agent.micro.ttl -= dt;
+    if (w.agent.micro.ttl <= 0) w.agent.micro = null;
+  }
+
+  // a bad day / a good weekend leans on the mood a little
+  const rm = rhythmMods(w);
+  if (rm.moodBias) w.mood.valence = Math.max(-1, Math.min(1, w.mood.valence + rm.moodBias * dt));
 
   // weather pulls on curiosity while the agent is actually at the window
   if (w.agent.room === "window") {
@@ -187,12 +214,15 @@ export function tick(w, dt) {
       requestsWaiting: w.requests,
       wantsReflect,
       thirstyRoom,
-      speedMul: w.era.speedMul,
+      speedMul: (w.era.speedMul ?? 1) * rm.speedMul,
+      rhythm: rm, // { work, play, ... } multipliers
+      voteBias: w.voteBias || null,
       onWater: (room) => {
         const label = waterPlant(w, room);
         if (label) {
           w.fx.push("event");
           w.agent.needs.curiosity = clamp100(w.agent.needs.curiosity + 6);
+          petBond(w, 0.02);
         }
       },
       onRequestResolved: () => {
@@ -235,6 +265,7 @@ export function rainLevel(w) {
 
 function onNewDay(w) {
   ageMemory(w.memory);
+  rollRhythm(w, w.rng);
   w.yesterday = w.tally;
   w.tally = freshTally(w.day);
   w.incomeYesterday = w.incomeToday;

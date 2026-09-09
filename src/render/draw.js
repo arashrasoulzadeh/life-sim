@@ -45,6 +45,7 @@ export function render(ctx, w, ui) {
       if (view === "window") drawSky(ctx, w);
       if (view === "bed") drawMemoryWall(ctx, w);
     }
+    if (w.pet && w.pet.room === view && !inHall) drawPet(ctx, w);
     if (inHall || (w.agent.room === view && w.agent.transit <= 0)) drawAgent(ctx, w);
     drawNightTint(ctx, w);
     drawSeasonTint(ctx, w);
@@ -58,6 +59,7 @@ export function render(ctx, w, ui) {
     // the animated features that only the canvas can do, rendered into their cell
     inCell(ctx, w, "window", () => drawSky(ctx, w));
     inCell(ctx, w, "bed", () => drawMemoryWall(ctx, w));
+    if (w.pet && w.pet.room) inCell(ctx, w, w.pet.room, () => drawPet(ctx, w, 0.5));
     drawGridAgent(ctx, w);
     drawNightTint(ctx, w);
     drawSeasonTint(ctx, w);
@@ -463,6 +465,63 @@ function drawAgent(ctx, w) {
     ctx.fillStyle = "#d3d7df";
     ctx.textBaseline = "top";
     ctx.fillText(t, bx + 6, by + 3);
+  }
+
+  // idle micro-behaviour: a small emote above the head
+  const micro = agent.micro;
+  if (micro && !agent.moving) {
+    const glyph = MICRO_GLYPH[micro.kind] || "·";
+    ctx.font = "10px ui-monospace, Menlo, monospace";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "rgba(220,225,235,0.9)";
+    const wob = Math.sin(now / 160) * 1.5;
+    ctx.fillText(glyph, x - 4, y - 4 - bodyH - 14 + wob);
+  }
+}
+
+const MICRO_GLYPH = { stretch: "↑", glance: "👀", sip: "☕", hum: "♪", shift: "≈", yawn: "~", tidy: "✦" };
+
+function drawPet(ctx, w, scaleHint = 1) {
+  const p = w.pet;
+  if (!p) return;
+  const x = Math.round(p.x);
+  const y = Math.round(p.y);
+  const now = performance.now();
+  const sleeping = p.state === "sleep" || p.state === "nap";
+  const bob = sleeping ? 0 : Math.abs(Math.sin(now / 300)) * 1.5;
+
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.fillRect(x - 6, y + 1, 12, 3);
+
+  // little body
+  ctx.fillStyle = "#5b5560";
+  const bl = 12, bh = sleeping ? 4 : 6;
+  ctx.fillRect(x - bl / 2, y - bh - bob, bl, bh);
+  // head
+  const hx = p.facing < 0 ? x - bl / 2 - 3 : x + bl / 2 - 3;
+  ctx.fillRect(hx, y - bh - 4 - bob, 6, 5);
+  // ears
+  ctx.fillRect(hx, y - bh - 7 - bob, 2, 3);
+  ctx.fillRect(hx + 4, y - bh - 7 - bob, 2, 3);
+  // tail
+  ctx.fillStyle = "#4a454f";
+  const tx = p.facing < 0 ? x + bl / 2 : x - bl / 2 - 3;
+  ctx.fillRect(tx, y - bh - 2 - bob, 3, 2);
+
+  if (sleeping) {
+    ctx.font = "8px ui-monospace, monospace";
+    ctx.fillStyle = "rgba(200,205,215,0.7)";
+    ctx.fillText("z", x + 6, y - bh - 6 + Math.sin(now / 500) * 2);
+  } else if (p.state === "play") {
+    ctx.fillStyle = "rgba(230,180,90,0.9)";
+    ctx.fillRect(x + p.facing * 8, y - bh - 2, 2, 2);
+  }
+  if (p.name && scaleHint === 1) {
+    ctx.font = "8px ui-monospace, Menlo, monospace";
+    ctx.fillStyle = "rgba(200,205,215,0.6)";
+    ctx.textAlign = "center";
+    ctx.fillText(p.name, x, y - bh - 12 - bob);
+    ctx.textAlign = "left";
   }
 }
 

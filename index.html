@@ -123,6 +123,9 @@
       <button id="gamecodebtn" hidden>game code</button>
       <button id="zoombtn" hidden>⤢ grid</button>
       <span id="tb-season" title="the world outside"></span>
+      <span id="tb-day" title="day of the week"></span>
+      <button id="vote-btn">vote</button>
+      <button id="journal-btn">journal</button>
       <button id="shop-btn">shop</button>
       <button id="guest-btn">guestbook</button>
       <button id="about-btn">what is this?</button>
@@ -163,6 +166,21 @@
       <p style="color:#7f8a9c">Only the AI buys — this is what it can choose from. ~200 things in four categories.</p>
       <pre id="shop-body">…</pre>
       <button class="close" id="shop-close">close</button>
+    </dialog>
+
+    <dialog id="vote">
+      <h2>DAILY VOTE</h2>
+      <p id="vote-prompt" style="color:#9fb0c8"></p>
+      <p style="color:#7f8a9c;font-size:12px">Viewers vote a focus for the day. It <b>nudges</b> what the AI leans toward tomorrow — it never forces it. One vote per person per day; change it any time.</p>
+      <div id="vote-opts" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div id="vote-msg" style="color:#e0b45c;min-height:16px;font-size:12px;margin-top:6px"></div>
+      <button class="close" id="vote-close">close</button>
+    </dialog>
+
+    <dialog id="journal">
+      <h2>THE JOURNAL</h2>
+      <pre id="journal-body">…</pre>
+      <button class="close" id="journal-close">close</button>
     </dialog>
 
     <dialog id="guest">

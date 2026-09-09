@@ -132,8 +132,21 @@ function personalityBoost(p, need) {
   }
 }
 
+// which vote choice each action answers to
+const VOTE_ACTION = {
+  work: "work",
+  rest: "rest",
+  sleep: "rest",
+  chat: "social",
+  gaze: "learn",
+  reflect: "learn",
+  water: "tend",
+};
+
 export function scoreActions(agent, env, rng) {
   const { isNight, requestsWaiting, wantsReflect, thirstyRoom } = env;
+  const rhythm = env.rhythm || { work: 1, play: 1 };
+  const voteBias = env.voteBias || null;
   const { needs, personality } = agent;
   return ACTIONS.map((action) => {
     let score = action.weight;
@@ -162,6 +175,16 @@ export function scoreActions(agent, env, rng) {
     if (action.id === "pace") score *= 0.4 + personality.restlessness * 1.6;
     if (action.id === "rest" && needs.energy > 60) score *= 0.4;
     if (action.id === "water") score *= thirstyRoom ? 2.2 + personality.curiosity : 0.01;
+
+    // the week has a shape
+    if (action.id === "work") score *= rhythm.work;
+    if (["gaze", "chat", "rest", "pace"].includes(action.id)) score *= rhythm.play;
+
+    // viewers voted a focus yesterday — a gentle nudge, never a command
+    if (voteBias) {
+      const key = VOTE_ACTION[action.id];
+      if (key && voteBias[key]) score *= voteBias[key];
+    }
 
     // travel cost — cheaper to keep doing what you're near
     if (action.room !== agent.room) score *= 0.8;
