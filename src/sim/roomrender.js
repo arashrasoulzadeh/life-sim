@@ -5,6 +5,7 @@
 import { ROOMS } from "./rooms.js";
 import { OBJECTS } from "./objects.js";
 import { plantGlyph, plantWater } from "./plants.js";
+import { wearGlyph, wearPct } from "./wear.js";
 
 // slot coordinates in the 512x448 playfield (floor rows + a wall row)
 const SLOTS = [
@@ -40,13 +41,13 @@ function esc(s) {
   return String(s).replace(/[<>"&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", '"': "&quot;", "&": "&amp;" })[c]);
 }
 
-export function objHtml(id, slot, roomId, plants) {
+export function objHtml(id, slot, roomId, plants, wear) {
   const o = OBJECTS[id];
   if (!o) return "";
   const p = SLOTS[slot % SLOTS.length];
   const x = ((p.x / 512) * 100).toFixed(2);
   const y = ((p.y / 448) * 100).toFixed(2);
-  const glyph = plantGlyph(plants, roomId, id, o.glyph);
+  const glyph = wearGlyph(wear, roomId, id, plantGlyph(plants, roomId, id, o.glyph));
   return `<span class="obj" data-obj="${id}" title="${esc(o.label)}" style="left:${x}%;top:${y}%">${glyph}</span>`;
 }
 
@@ -59,19 +60,19 @@ export function roomStyle(roomId, style) {
   };
 }
 
-export function roomHtml(roomId, objects, style, plants) {
+export function roomHtml(roomId, objects, style, plants, wear) {
   const { name, palette: p } = roomStyle(roomId, style);
   return (
     `<div class="room" data-room="${roomId}" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent}">` +
     '<div class="wall"></div><div class="floor"></div>' +
     (FURNITURE[roomId] || "") +
-    objects.map((id, i) => objHtml(id, i, roomId, plants)).join("") +
+    objects.map((id, i) => objHtml(id, i, roomId, plants, wear)).join("") +
     `<span class="room-tag">${esc(name)}</span>` +
     "</div>"
   );
 }
 
-export function objectsMeta(roomId, objects, objDay, plants) {
+export function objectsMeta(roomId, objects, objDay, plants, wear) {
   return objects
     .map((id, i) => {
       const o = OBJECTS[id];
@@ -81,26 +82,27 @@ export function objectsMeta(roomId, objects, objDay, plants) {
         id,
         label: o.label,
         price: o.price,
-        glyph: plantGlyph(plants, roomId, id, o.glyph),
+        glyph: wearGlyph(wear, roomId, id, plantGlyph(plants, roomId, id, o.glyph)),
         cat: o.cat,
         x: +(p.x / 512).toFixed(4),
         y: +(p.y / 448).toFixed(4),
         day: (objDay && objDay[`${roomId}:${id}`]) || 1,
         water: plantWater(plants, roomId, id),
+        condition: wearPct(wear, roomId, id),
       };
     })
     .filter(Boolean);
 }
 
-export function roomDoc(seed, roomId, objects, style, objDay, plants) {
+export function roomDoc(seed, roomId, objects, style, objDay, plants, wear) {
   const { name, palette } = roomStyle(roomId, style);
   return {
     room: roomId,
     name,
     palette,
     objects: [...objects],
-    meta: objectsMeta(roomId, objects, objDay, plants),
-    html: roomHtml(roomId, objects, style, plants),
+    meta: objectsMeta(roomId, objects, objDay, plants, wear),
+    html: roomHtml(roomId, objects, style, plants, wear),
     updated: new Date().toISOString(),
   };
 }
@@ -108,6 +110,6 @@ export function roomDoc(seed, roomId, objects, style, objDay, plants) {
 export function initDocs(world) {
   world.roomDocs = {};
   for (const rid of Object.keys(world.rooms)) {
-    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants);
+    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants, world.wear);
   }
 }

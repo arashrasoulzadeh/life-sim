@@ -12,6 +12,10 @@ import { gates } from "./skills.js";
 import { GOAL_METRICS, makeGoal, goalFrac } from "./goals.js";
 import { setWeekStyle } from "./rhythm.js";
 import { namePet, petLabel } from "./pet.js";
+import { financeLine, economyMods } from "./economy.js";
+import { psycheLine, isConflictToday, resolveLean } from "./psyche.js";
+import { canWrite, cleanWriting, writingPrompt } from "./writing.js";
+import { isBroken, repair, repairCost, wearPct } from "./wear.js";
 
 const VOTE_LABELS = { work: "work hard", rest: "rest & recover", social: "reach out to others", learn: "learn something", tend: "tend the home" };
 
@@ -71,6 +75,17 @@ export function buildPrompt(w, phase, ctx = {}) {
   const voteLine = ctx.voteResult
     ? `Yesterday viewers voted for you to: ${VOTE_LABELS[ctx.voteResult.choice] || ctx.voteResult.choice} (${ctx.voteResult.count} votes). You can heed it or not.`
     : "";
+  const moneyLine = `Money: ${financeLine(w)}.`;
+  const conflictLine = psycheLine(w);
+  const worn = [];
+  for (const [room, ids] of Object.entries(w.rooms || {})) {
+    for (const id of ids) {
+      const pct = wearPct(w.wear, room, id);
+      if (pct != null && pct < 55) worn.push(`${OBJECTS[id]?.label || id} in ${room} (${isBroken(w, room, id) ? "BROKEN" : pct + "%"})`);
+    }
+  }
+  const wearLine = worn.length ? `Worn / broken: ${worn.slice(0, 6).join("; ")}.` : "";
+  const writeLine = phase === "morning" && canWrite(w) ? `Your writing is ${Math.round(sk.writing || 0)} — you could write ${writingPrompt(w.rng)} today (fill "wrote").` : "";
 
   const commonRules = [
     `roomOrder: the six room ids ${JSON.stringify(ROOM_IDS)} in a new order, or null.`,
@@ -92,6 +107,7 @@ export function buildPrompt(w, phase, ctx = {}) {
         '  "sell": [{"object": id}]  0-2, must be one you own,',
         '  "commissionGame": {"title": string <=48, "kernel": string, "params": object} or null  (FREE — make one whenever you have an idea),',
         '  "routine": [{"op": string, "arg": optional}]  0-10 playful in-place moves, or null,',
+        '  "repair": [{"object": id}]  0-2 worn / broken things to fix (costs a small fee), or null,',
         '  "restyle": [{"room","name"?,"wall"?,"floor"?,"accent"?}]  rename / recolour rooms (name <=24, colours #rrggbb), or null,',
         '  "newMemory": {...} or null',
         '}',
@@ -112,6 +128,9 @@ export function buildPrompt(w, phase, ctx = {}) {
         '{"line": string <=140, "reply": string <=240, "quote": string <=140, "dream": string <=200 or null,',
         `  "goal": {"text": string, "metric": one of ${Object.keys(GOAL_METRICS).join("|")}, "target": number} or null,`,
         '  "petName": string <=16 or null, "weekStyle": string <=80 or null, "votePrompt": string <=80 or null,',
+        '  "wrote": string <=600 or null  (an actual short piece — prose, a list, a letter — only if your writing is high),',
+        '  "lean": "push" | "ease" | null  (ONLY on a two-minds morning — which half wins today),',
+        '  "argument": string <=200 or null  (that inner argument, in a line or two),',
         '  "roomOrder": [...] or null, "look": {...} or null, "newMemory": {...} or null}',
         `quote: a short "quote of the day" from this life's own history.`,
         `dream: narrate last night's dream in one or two sentences (surreal, from your memories), or null.`,
@@ -131,6 +150,10 @@ export function buildPrompt(w, phase, ctx = {}) {
     rhythmLine,
     petLine,
     voteLine,
+    moneyLine,
+    conflictLine,
+    wearLine,
+    writeLine,
     `Bank ${Math.round(w.bank)}c. Yesterday earned ${Math.round(w.incomeYesterday)}, spent ${Math.round(w.expensesYesterday)}.`,
     `${phase === "morning" ? "Yesterday" : "Today"}: ${t.resolved} requests done, lowest focus ${Math.round(t.minFocus)}, lowest social ${Math.round(t.minSocial)}, ${t.windowEvents} things at the window.`,
     dreamLine,
@@ -246,6 +269,16 @@ export function applyMorning(w, resp) {
     }
   }
 
+  if (isConflictToday(w)) {
+    const lean = resolveLean(w, resp?.lean, resp?.argument);
+    if (lean !== "even") out.changes.push(lean === "push" ? "⚡ chose to push today" : "🌙 chose to ease off today");
+  }
+  const wrote = cleanWriting(resp?.wrote);
+  if (wrote && canWrite(w)) {
+    out.wrote = { day: w.day, kind: "piece", text: wrote };
+    out.changes.push("✍ wrote something");
+  }
+
   const petnamed = namePet(w, resp?.petName);
   if (petnamed) out.changes.push(`🐈 named the cat ${petnamed}`);
   const ws = setWeekStyle(w, resp?.weekStyle);
@@ -291,7 +324,12 @@ export function applyEvening(w, resp) {
     out.changes.push(`− sold ${OBJECTS[id].label} (+${refund}c)`);
   }
 
+  const canBuy = economyMods(w).buyAllowed;
   for (const c of arr(resp?.buy).slice(0, 3)) {
+    if (!canBuy) {
+      out.changes.push("… too broke to buy anything");
+      break;
+    }
     const id = String(c?.object || "");
     const o = OBJECTS[id];
     if (!o) continue;
@@ -322,6 +360,22 @@ export function applyEvening(w, resp) {
       out.game = { title: (str(g.title, 48) || spec.kernel).replace(/[<>]/g, ""), spec };
       out.changes.push(`🎮 made "${out.game.title}"`);
     }
+  }
+
+  for (const c of arr(resp?.repair).slice(0, 2)) {
+    const id = String(c?.object || "");
+    const room = Object.keys(w.rooms).find((r) => w.rooms[r].includes(id));
+    if (!room || w.wear?.[`${room}:${id}`] == null) continue;
+    if (w.wear[`${room}:${id}`] >= 92) continue;
+    const cost = repairCost(w, room, id);
+    if (w.bank < cost) {
+      out.changes.push(`… can't afford to fix ${OBJECTS[id]?.label || id} (${cost}c)`);
+      continue;
+    }
+    w.bank -= cost;
+    out.spent += cost;
+    const label = repair(w, room, id);
+    out.changes.push(`🔧 fixed ${label} (−${cost}c)`);
   }
 
   out.routine = applyRoutine(w, resp?.routine);

@@ -282,7 +282,13 @@ function frame(now) {
   }
   const dayEl = $("tb-day");
   if (dayEl && world.rhythm) {
-    dayEl.textContent = `${world.rhythm.dowName || ""}${world.rhythm.badDay ? " · off day" : world.rhythm.weekend ? " · weekend" : ""}`;
+    let tag = `${world.rhythm.dowName || ""}`;
+    if (world.finances && world.finances.broke) tag += " · BROKE";
+    else if (world.rhythm.badDay) tag += " · off day";
+    else if (world.rhythm.weekend) tag += " · weekend";
+    if (world.psyche) tag += world.psyche.lean === "push" ? " · pushing" : world.psyche.lean === "ease" ? " · easing" : " · of two minds";
+    dayEl.textContent = tag;
+    dayEl.style.color = world.finances && world.finances.broke ? "#e06a5c" : "";
   }
   tbTok.textContent = `◊ ${world.bank} coins`;
   tbQuote.textContent = world.quote?.text ? world.quote.text : "a life that runs itself";
@@ -364,11 +370,19 @@ async function openGameCode() {
 function openObj(meta, room) {
   const body = $("objinfo-body");
   const roomName = (roomMeta[room] && cells[room]) ? cells[room].host.querySelector(".room-tag")?.textContent || room : room;
+  const cond =
+    meta.condition == null
+      ? ""
+      : `\ncondition  ${meta.condition}%${meta.condition < 22 ? " — BROKEN" : meta.condition < 55 ? " — worn" : ""}`;
+  const wtr = meta.water == null ? "" : `\nwater      ${meta.water}%`;
   body.textContent =
     `${meta.glyph}  ${meta.label}\n\n` +
     `category   ${meta.cat}\n` +
     `bought for ${meta.price} coins\n` +
-    `in ${roomName} since day ${meta.day}\n` +
+    `in ${roomName} since day ${meta.day}` +
+    cond +
+    wtr +
+    "\n" +
     (world ? `(day ${world.day} now — ${world.day - meta.day} days ago)` : "");
   dlgs.objinfo.showModal();
 }
@@ -401,7 +415,9 @@ async function openJournal() {
       j.pet && j.pet.name ? `the cat: ${j.pet.name} (bond ${Math.round((j.pet.bond || 0) * 100)}%)` : "",
       `skills — writing ${Math.round(sk.writing || 0)} · coding ${Math.round(sk.coding || 0)} · tinkering ${Math.round(sk.tinkering || 0)} · talking ${Math.round(sk.talking || 0)}`,
       `games made: ${j.gamesMade || 0}${(sk.coding || 0) < 10 ? "  (needs coding 10 to start)" : ""}`,
+      j.money ? `money — ${j.money}` : "",
       "",
+      (j.writings || []).length ? "THINGS IT WROTE\n" + j.writings.map((x) => `  — day ${x.day} —\n${x.txt.split("\n").map((l) => "  " + l).join("\n")}`).join("\n\n") + "\n" : "",
       j.lifeSummary ? `LIFE SO FAR\n${j.lifeSummary}` : "",
       "",
       "GOALS\n" + (goals || "  (none yet)"),

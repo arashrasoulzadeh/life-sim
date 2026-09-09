@@ -258,6 +258,7 @@ export function stepAgent(agent, dt, env, rng) {
     if (agent.actionLeft > 0) return;
     if (agent.action.id === "reflect") onReflect();
     if (agent.action.id === "water" && env.onWater) env.onWater(agent.room);
+    if (agent.action.id === "tinker" && env.onTinker) env.onTinker(agent.room);
   }
 
   // decide what to do next

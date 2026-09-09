@@ -15,6 +15,9 @@ import { tickPlants, plantsNewDay, thirstyIn, water as waterPlant } from "./plan
 import { weaveDream } from "./dreams.js";
 import { freshRhythm, stepRhythm, rollRhythm, rhythmMods } from "./rhythm.js";
 import { freshPet, stepPet, petBond } from "./pet.js";
+import { freshFinances, chargeDay, economyMods } from "./economy.js";
+import { ensureWear, tickWear, conditionFactor, tinkerFix } from "./wear.js";
+import { freshPsyche, rollPsyche, psycheMods } from "./psyche.js";
 
 const MICROS = ["stretch", "glance", "sip", "hum", "shift", "yawn", "tidy"];
 
@@ -83,6 +86,11 @@ export function createWorld(seed) {
     plants: {}, // "room:id" -> { water, since, dryDays }
     rhythm: freshRhythm(), // { dow, dowName, weekend, badDay, weekStyle }
     pet: freshPet(rng), // the cat — its own little loop
+    finances: freshFinances(), // rent / upkeep / broke state
+    wear: {}, // "room:id" -> condition 0..100
+    psyche: freshPsyche(), // two-minds days
+    writings: [], // last few kept pieces { day, kind, text } — mirror of the table
+    _dayCharges: null, // ledger lines produced at rollover, drained by the server
     vote: null, // { day, prompt, tally:{}, total } — set by the server each morning
     voteBias: null, // { work, rest, social, learn, tend } multipliers from yesterday's vote
     slept: false, // asleep at some point last night — feeds the morning dream
@@ -143,6 +151,7 @@ export function tick(w, dt) {
   tickPlants(w, dt, DAY_LENGTH);
   stepRhythm(w);
   stepPet(w, dt, w.rng);
+  tickWear(w, dt, DAY_LENGTH);
   if (w.isNight && w.agent.action && w.agent.action.id === "sleep") w.slept = true;
 
   // idle micro-behaviours — small in-between moments while settled in a room
@@ -158,20 +167,26 @@ export function tick(w, dt) {
     if (w.agent.micro.ttl <= 0) w.agent.micro = null;
   }
 
-  // a bad day / a good weekend leans on the mood a little
+  // a bad day / a good weekend / a broke stretch leans on the mood a little
   const rm = rhythmMods(w);
-  if (rm.moodBias) w.mood.valence = Math.max(-1, Math.min(1, w.mood.valence + rm.moodBias * dt));
+  const em = economyMods(w);
+  const pm = psycheMods(w);
+  const moodBias = (rm.moodBias || 0) + (em.mood || 0);
+  if (moodBias) w.mood.valence = Math.max(-1, Math.min(1, w.mood.valence + moodBias * dt));
 
   // weather pulls on curiosity while the agent is actually at the window
   if (w.agent.room === "window") {
     w.agent.needs.curiosity = clamp100(w.agent.needs.curiosity + weatherCuriosity(w.weather.sky) * dt);
   }
 
-  // objects in the current room give a small lift while the agent is settled there
+  // objects in the current room give a small lift while the agent is settled
+  // there — scaled by how worn each one is (a broken thing gives nothing)
   if (w.agent.transit <= 0 && !w.agent.moving && w.agent.action) {
     for (const id of w.rooms[w.agent.room]) {
       const o = OBJECTS[id];
-      if (o && o.effect) applyEffect(w.agent.needs, o.effect, dt * 0.6);
+      if (!o || !o.effect) continue;
+      const f = conditionFactor(w, w.agent.room, id);
+      if (f > 0) applyEffect(w.agent.needs, o.effect, dt * 0.6 * f);
     }
   }
 
@@ -215,7 +230,10 @@ export function tick(w, dt) {
       wantsReflect,
       thirstyRoom,
       speedMul: (w.era.speedMul ?? 1) * rm.speedMul,
-      rhythm: rm, // { work, play, ... } multipliers
+      rhythm: {
+        work: rm.work * em.work * pm.work,
+        play: rm.play * (pm.ease || 1),
+      },
       voteBias: w.voteBias || null,
       onWater: (room) => {
         const label = waterPlant(w, room);
@@ -223,6 +241,13 @@ export function tick(w, dt) {
           w.fx.push("event");
           w.agent.needs.curiosity = clamp100(w.agent.needs.curiosity + 6);
           petBond(w, 0.02);
+        }
+      },
+      onTinker: (room) => {
+        const fixed = tinkerFix(w, room, 26);
+        if (fixed) {
+          w.fx.push("memory");
+          w.agent.lastThought = `fixed the ${fixed}`;
         }
       },
       onRequestResolved: () => {
@@ -266,6 +291,9 @@ export function rainLevel(w) {
 function onNewDay(w) {
   ageMemory(w.memory);
   rollRhythm(w, w.rng);
+  rollPsyche(w, w.rng);
+  ensureWear(w);
+  w._dayCharges = chargeDay(w); // rent + upkeep — the server writes these to the ledger
   w.yesterday = w.tally;
   w.tally = freshTally(w.day);
   w.incomeYesterday = w.incomeToday;

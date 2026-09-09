@@ -21,6 +21,8 @@ import { buildPrompt, applyMorning, applyEvening, stubDialogue } from "./src/sim
 import { rainIntensity } from "./src/sim/weather.js";
 import { roomDoc, initDocs } from "./src/sim/roomrender.js";
 import { goalFrac } from "./src/sim/goals.js";
+import { canWrite, weaveWriting } from "./src/sim/writing.js";
+import { financeLine } from "./src/sim/economy.js";
 import { ROOM_IDS } from "./src/sim/rooms.js";
 import { describeSpec } from "./src/game/kernels.js";
 import { MARKET } from "./src/sim/marketplace.js";
@@ -122,6 +124,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS notes (seed TEXT, ts TEXT, viewer TEXT, name TEXT, txt TEXT, read INTEGER DEFAULT 0);
   CREATE TABLE IF NOT EXISTS impressions (seed TEXT, day INTEGER, viewer TEXT, site TEXT, seconds REAL, credited REAL, PRIMARY KEY (seed, day, viewer, site));
   CREATE TABLE IF NOT EXISTS votes (seed TEXT, day INTEGER, viewer TEXT, choice TEXT, ts TEXT, PRIMARY KEY (seed, day, viewer));
+  CREATE TABLE IF NOT EXISTS writings (seed TEXT, day INTEGER, kind TEXT, txt TEXT, created_at TEXT, PRIMARY KEY (seed, day));
 `);
 // migrate older DBs missing the reply column
 try { db.exec(`ALTER TABLE conversations ADD COLUMN reply TEXT`); } catch { /* already there */ }
@@ -232,6 +235,8 @@ const Q = {
   voteTally: db.prepare(`SELECT choice, COUNT(*) c FROM votes WHERE seed=? AND day=? GROUP BY choice`),
   voteMine: db.prepare(`SELECT choice FROM votes WHERE seed=? AND day=? AND viewer=?`),
   voteTrim: db.prepare(`DELETE FROM votes WHERE seed=? AND day < ?`),
+  writeSet: db.prepare(`INSERT INTO writings (seed,day,kind,txt,created_at) VALUES (?,?,?,?,?) ON CONFLICT(seed,day) DO UPDATE SET txt=excluded.txt, kind=excluded.kind`),
+  writeList: db.prepare(`SELECT day,kind,txt FROM writings WHERE seed=? ORDER BY day DESC LIMIT 20`),
 };
 
 const VOTE_CHOICES = ["work", "rest", "social", "learn", "tend"];
@@ -302,6 +307,10 @@ function restore(seed, json) {
   if (!w.plants) w.plants = {};
   if (!w.rhythm || typeof w.rhythm !== "object") w.rhythm = { dow: 0, dowName: "Mon", weekend: false, badDay: false, weekStyle: "" };
   if (!w.pet || typeof w.pet !== "object") w.pet = createWorld(seed).pet;
+  if (!w.finances || typeof w.finances !== "object") w.finances = { broke: false, brokeSince: 0, lastRentDay: w.day, missedRent: 0 };
+  if (!w.wear || typeof w.wear !== "object") w.wear = {};
+  if (!w.psyche || typeof w.psyche !== "object") w.psyche = { conflictDay: 0, lean: "even", leanUntil: 0, argument: null };
+  if (!Array.isArray(w.writings)) w.writings = [];
   if (!("goal" in w)) w.goal = null;
   if (!("dream" in w)) w.dream = null;
   if (!("vote" in w)) w.vote = null;
@@ -412,6 +421,17 @@ function finishDialogue(phase, r) {
     try { Q.goalIns.run(String(SEED), r.goal.startDay, r.goal.text, r.goal.metric, r.goal.target); } catch { /* ignore */ }
   }
   if (phase === "morning") openBallot(r.votePrompt);
+
+  // a kept piece of writing — the model's, or an offline weave
+  let piece = r.wrote && r.wrote.text ? r.wrote : null;
+  if (!piece && phase === "morning" && canWrite(world) && world.rng.chance(0.22)) {
+    const woven = weaveWriting(world, world.rng);
+    if (woven) piece = { day: world.day, kind: "piece", text: woven };
+  }
+  if (piece) {
+    try { Q.writeSet.run(String(SEED), piece.day, piece.kind || "piece", piece.text, new Date().toISOString()); } catch { /* ignore */ }
+    world.writings = [{ day: piece.day, kind: piece.kind || "piece", text: piece.text }, ...(world.writings || [])].slice(0, 6);
+  }
   // the AI has seen the guestbook — mark those notes read
   if (world._noteHighWater) {
     try { Q.noteMarkRead.run(String(SEED), world._noteHighWater); } catch { /* ignore */ }
@@ -479,7 +499,7 @@ function regenRooms(force) {
   for (const rid of ROOM_IDS) {
     const cur = world.roomDocs[rid];
     if (force || !cur || (cur.objects || []).join(",") !== (world.rooms[rid] || []).join(",")) {
-      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay, world.plants);
+      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay, world.plants, world.wear);
       bumped = true;
     }
   }
@@ -539,6 +559,22 @@ function persistMemories() {
 // ---------- daily maintenance ----------
 function onNewDayServer() {
   persistMemories();
+
+  // rent + upkeep charged at the day rollover (produced by the sim)
+  if (Array.isArray(world._dayCharges)) {
+    let exp = 0;
+    for (const c of world._dayCharges) {
+      if (!c.amount) continue;
+      ledger(c.kind, c.amount, c.note);
+      if (c.amount < 0) exp += -c.amount;
+    }
+    if (exp) {
+      world.expensesToday += exp;
+      try { Q.dailyAdd.run(String(SEED), world.day, 0, exp); } catch { /* ignore */ }
+    }
+    persistBank();
+    world._dayCharges = null;
+  }
 
   // record a resolved goal + last night's dream
   if (world.goal && (world.goal.done || world.goal.failed)) {
@@ -758,6 +794,13 @@ function viewSnapshot() {
     plants: world.plants || {},
     rhythm: world.rhythm || null,
     pet: world.pet ? { kind: world.pet.kind, name: world.pet.name, room: world.pet.room, x: world.pet.x, y: world.pet.y, facing: world.pet.facing, state: world.pet.state, bond: world.pet.bond } : null,
+    finances: world.finances
+      ? { broke: !!world.finances.broke, missedRent: world.finances.missedRent || 0, line: financeLine(world) }
+      : null,
+    wear: world.wear || {},
+    psyche: world.psyche && world.psyche.conflictDay === world.day ? { lean: world.psyche.lean, argument: world.psyche.argument || "" } : null,
+    writingCount: (Q.writeList.all(String(SEED)) || []).length,
+    latestWriting: (world.writings && world.writings[0]) || null,
     vote: (() => {
       const t = tallyFor(world.day);
       return { day: world.day, prompt: world.vote?.prompt || "What should today be about?", choices: VOTE_CHOICES, labels: VOTE_LABEL, tally: t.tally, total: t.total, bias: world.voteBias || null };
@@ -957,6 +1000,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (path === "/api/version") return sendJSON(res, JSON.stringify({ build: BUILD_ID }));
+  if (path === "/api/writings") return sendJSON(res, JSON.stringify(Q.writeList.all(String(SEED))));
 
   if (path === "/api/journal") {
     const life = Q.lifeGet.get(String(SEED));
@@ -967,6 +1011,8 @@ const server = createServer(async (req, res) => {
       pet: world.pet ? { name: world.pet.name, bond: world.pet.bond } : null,
       skills: world.agent.skills || null,
       gamesMade: world.gamesMade || world.gamesCount || 0,
+      money: world.finances ? financeLine(world) : "",
+      writings: Q.writeList.all(String(SEED)).slice(0, 8),
       lifeSummary: life?.txt || "",
       digests: Q.digestRecent.all(String(SEED)).map((d) => ({ month: d.month, summary: d.summary })),
       memories: Q.memTopActive.all(String(SEED)).map((m) => m.txt),
