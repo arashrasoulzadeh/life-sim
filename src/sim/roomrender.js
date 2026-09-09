@@ -19,7 +19,7 @@ const FURNITURE = {
   desk:
     '<div class="furn" style="left:33%;width:46%;top:55%;height:3.5%;background:#5a4632"></div>' +
     '<div class="furn monitor" style="left:36%;width:28%;top:34%;height:21%;background:#0a0a0a;box-shadow:inset 0 0 0 2px #000">' +
-    '<iframe class="ifr site-frame" title="monitor" sandbox="allow-scripts allow-popups allow-forms" referrerpolicy="no-referrer" loading="lazy"></iframe>' +
+    '<iframe class="ifr site-frame" title="monitor" sandbox="allow-scripts allow-popups allow-forms allow-same-origin allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" loading="lazy"></iframe>' +
     '<span class="frame-cap site-cap"></span></div>',
   kitchen:
     '<div class="furn" style="left:9%;width:39%;top:52%;height:3%;background:#7d7d86"></div>' +
