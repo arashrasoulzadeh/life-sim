@@ -22,6 +22,30 @@ function resize() {
 addEventListener("resize", resize);
 resize();
 
+// --- visitor input (only reaches here when the game room is zoomed, via
+// pointer-events:auto on the frame). Kernels read `input`; keys/clicks never
+// run code, they just nudge numbers. ---
+const input = { dir: null, dirAt: 0, taps: [], burst: 0 };
+addEventListener("keydown", (e) => {
+  const d = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0] }[e.key];
+  if (d) {
+    input.dir = d;
+    input.dirAt = performance.now();
+    e.preventDefault();
+  }
+});
+canvas.addEventListener("pointerdown", (e) => {
+  const r = canvas.getBoundingClientRect();
+  input.taps.push({ x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H });
+  input.burst = 1;
+  if (input.taps.length > 12) input.taps.shift();
+});
+const takeTaps = () => {
+  const t = input.taps;
+  input.taps = [];
+  return t;
+};
+
 const KERNEL_FN = {};
 
 KERNEL_FN.orbit = (p) => {
@@ -56,6 +80,9 @@ KERNEL_FN.bounce = (p) => {
     vy: (Math.random() - 0.5) * 4 * p.speed,
   }));
   loop(() => {
+    for (const t of takeTaps()) {
+      if (balls.length < 40) balls.push({ x: t.x, y: t.y, vx: (Math.random() - 0.5) * 6 * p.speed, vy: (Math.random() - 0.5) * 6 * p.speed });
+    }
     ctx.fillStyle = "#05070a";
     ctx.fillRect(0, 0, W, H);
     for (const b of balls) {
@@ -156,23 +183,29 @@ KERNEL_FN.snake = (p) => {
     if (acc >= stepMs) {
       acc = 0;
       const head = snake[0];
-      // greedy auto-pilot toward food, avoiding self
-      const opts = [
-        { x: 1, y: 0 },
-        { x: -1, y: 0 },
-        { x: 0, y: 1 },
-        { x: 0, y: -1 },
-      ].filter((d) => !(d.x === -dir.x && d.y === -dir.y));
-      opts.sort(
-        (a, b) =>
-          Math.hypot(head.x + a.x - food.x, head.y + a.y - food.y) -
-          Math.hypot(head.x + b.x - food.x, head.y + b.y - food.y),
-      );
-      dir = opts.find((d) => {
-        const nx = (head.x + d.x + g) % g;
-        const ny = (head.y + d.y + g) % g;
-        return !snake.some((s) => s.x === nx && s.y === ny);
-      }) || dir;
+      const manual = input.dir && performance.now() - input.dirAt < 4000;
+      if (manual && !(input.dir[0] === -dir.x && input.dir[1] === -dir.y)) {
+        dir = { x: input.dir[0], y: input.dir[1] };
+      } else {
+        // greedy auto-pilot toward food, avoiding self
+        const opts = [
+          { x: 1, y: 0 },
+          { x: -1, y: 0 },
+          { x: 0, y: 1 },
+          { x: 0, y: -1 },
+        ].filter((d) => !(d.x === -dir.x && d.y === -dir.y));
+        opts.sort(
+          (a, b) =>
+            Math.hypot(head.x + a.x - food.x, head.y + a.y - food.y) -
+            Math.hypot(head.x + b.x - food.x, head.y + b.y - food.y),
+        );
+        dir =
+          opts.find((d) => {
+            const nx = (head.x + d.x + g) % g;
+            const ny = (head.y + d.y + g) % g;
+            return !snake.some((s) => s.x === nx && s.y === ny);
+          }) || dir;
+      }
       const nx = (head.x + dir.x + g) % g;
       const ny = (head.y + dir.y + g) % g;
       snake.unshift({ x: nx, y: ny });

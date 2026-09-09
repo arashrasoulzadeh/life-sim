@@ -22,6 +22,7 @@ import { rainIntensity } from "./src/sim/weather.js";
 import { roomDoc, initDocs } from "./src/sim/roomrender.js";
 import { ROOM_IDS } from "./src/sim/rooms.js";
 import { describeSpec } from "./src/game/kernels.js";
+import { MARKET } from "./src/sim/marketplace.js";
 import * as Gap from "./src/engine/gapgpt.js";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -38,7 +39,7 @@ const BASE_RATE = (3 / (24 * 60)) * DAY_LENGTH; // sim-seconds per real second (
 const REAL_SECS_PER_DAY = DAY_LENGTH / BASE_RATE; // ~480
 const FIXED_DT = 1 / 30;
 const TICK_MS = 100;
-const BROADCAST_MS = Number(process.env.SIMYOU_BROADCAST_MS || 500); // SSE cadence — keep low
+const BROADCAST_MS = Number(process.env.SIMYOU_BROADCAST_MS || 5000); // SSE cadence — the client walks the agent between updates
 const PERSIST_MS = 5000;
 
 const DB_CAP_MB = Number(process.env.SIMYOU_DB_CAP_MB || 900);
@@ -58,6 +59,9 @@ try {
   console.error("[simyou] sites.json:", e.message);
 }
 const siteById = new Map(SITES.sites.map((s) => [s.id, s]));
+
+// the real seed never leaves the server — viewers get a stable opaque tag
+const SEED_TAG = createHash("sha256").update("simyou:" + SEED).digest("hex").slice(0, 10);
 
 // the game engine, inlined per-response with a nonce so the game frame needs
 // only sandbox="allow-scripts" — no same-origin, no external fetch, ever
@@ -162,6 +166,10 @@ function restore(seed, json) {
   for (const r of ROOM_IDS) if (!w.rooms[r]) w.rooms[r] = [];
   if (!Array.isArray(w.roomOrder) || w.roomOrder.length !== ROOM_IDS.length) w.roomOrder = [...ROOM_IDS];
   if (!w.roomStyle || typeof w.roomStyle !== "object") w.roomStyle = {};
+  if (!w.objDay || typeof w.objDay !== "object") {
+    w.objDay = {};
+    for (const r of ROOM_IDS) for (const id of w.rooms[r] || []) w.objDay[`${r}:${id}`] = w.day;
+  }
   if (!w.agent.look) w.agent.look = { skin: "#f0d9b8", shirt: "#dfe3ea", visor: "#3a4a8a" };
   if (!w.memory.overflow) w.memory.overflow = [];
   if (!w.roomDocs || Object.keys(w.roomDocs).length < ROOM_IDS.length) initDocs(w);
@@ -311,7 +319,7 @@ function regenRooms(force) {
   for (const rid of ROOM_IDS) {
     const cur = world.roomDocs[rid];
     if (force || !cur || (cur.objects || []).join(",") !== (world.rooms[rid] || []).join(",")) {
-      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle);
+      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay);
       bumped = true;
     }
   }
@@ -508,7 +516,7 @@ const clients = new Set();
 
 function viewSnapshot() {
   return JSON.stringify({
-    seed: world.seed,
+    seedTag: SEED_TAG,
     day: world.day,
     dayFrac: world.dayFrac,
     isNight: world.isNight,
@@ -633,9 +641,17 @@ const server = createServer(async (req, res) => {
     const out = {};
     for (const rid of ROOM_IDS) {
       const d = world.roomDocs[rid];
-      if (d) out[rid] = { objects: d.objects, html: d.html, updated: d.updated };
+      if (d) out[rid] = { objects: d.objects, meta: d.meta || [], html: d.html, updated: d.updated };
     }
     return sendJSON(res, JSON.stringify({ version: world.roomsVersion, order: world.roomOrder, rooms: out }));
+  }
+
+  if (path === "/api/market") {
+    const out = {};
+    for (const [cat, items] of Object.entries(MARKET)) {
+      out[cat] = items.map((o) => ({ id: o.id, label: o.label, room: o.room, price: o.price, glyph: o.glyph }));
+    }
+    return sendJSON(res, JSON.stringify(out));
   }
 
   if (path === "/api/bank") {

@@ -66,6 +66,9 @@ export function createWorld(seed) {
     rooms: Object.fromEntries(ROOM_IDS.map((r) => [r, [...(DEFAULT_OBJECTS[r] || [])]])),
     roomOrder: [...ROOM_IDS], // grid order; the AI may reorder it
     roomStyle: {}, // { [id]: { name?, palette?:{wall,floor,accent} } } — AI name/colour overrides, validated
+    objDay: Object.fromEntries(
+      ROOM_IDS.flatMap((r) => (DEFAULT_OBJECTS[r] || []).map((id) => [`${r}:${id}`, 1])),
+    ), // "room:obj" -> in-game day acquired
 
     bank: START_BANK, // coins — server is authoritative, this mirrors it into the snapshot
     incomeToday: 0,

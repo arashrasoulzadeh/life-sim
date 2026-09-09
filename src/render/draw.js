@@ -53,13 +53,16 @@ export function render(ctx, w, ui) {
     }
     if (!inHall) drawBubble(ctx, w, 256);
   } else {
+    drawGridLabels(ctx, w);
+    // the animated features that only the canvas can do, rendered into their cell
+    inCell(ctx, w, "window", () => drawSky(ctx, w));
+    inCell(ctx, w, "bed", () => drawMemoryWall(ctx, w));
     drawGridAgent(ctx, w);
     drawNightTint(ctx, w);
     if (w.era.tint) {
       ctx.fillStyle = w.era.tint;
       ctx.fillRect(0, 0, W, PLAYFIELD_H);
     }
-    drawGridLabels(ctx, w);
     const cx = agentCellCenterX(w);
     if (cx != null) drawBubble(ctx, w, cx);
   }
@@ -77,6 +80,23 @@ function cellRect(i) {
   const cw = W / GRID_COLS;
   const ch = PLAYFIELD_H / GRID_ROWS;
   return { x: (i % GRID_COLS) * cw, y: Math.floor(i / GRID_COLS) * ch, w: cw, h: ch };
+}
+function cellRectFor(w, roomId) {
+  const i = (w.roomOrder || []).indexOf(roomId);
+  return i < 0 ? null : cellRect(i);
+}
+// run a full-playfield draw fn scaled + clipped into a room's grid cell
+function inCell(ctx, w, roomId, fn) {
+  const r = cellRectFor(w, roomId);
+  if (!r) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(r.x, r.y, r.w, r.h);
+  ctx.clip();
+  ctx.translate(r.x, r.y);
+  ctx.scale(r.w / W, r.h / PLAYFIELD_H);
+  fn();
+  ctx.restore();
 }
 function agentCellIndex(w) {
   const order = w.roomOrder || [];
@@ -536,7 +556,7 @@ function drawDebug(ctx, w) {
   ctx.font = "9px ui-monospace, Menlo, monospace";
   ctx.textBaseline = "top";
   const p = w.agent.personality;
-  ctx.fillText(`seed ${w.seed}  era ${w.era.id}`, 4, 4);
+  ctx.fillText(`tag ${w.seedTag}  era ${w.era.id}`, 4, 4);
   ctx.fillText(`dil ${p.diligence.toFixed(2)} soc ${p.sociability.toFixed(2)}`, 4, 16);
   ctx.fillText(`cur ${p.curiosity.toFixed(2)} rst ${p.restlessness.toFixed(2)}`, 4, 28);
   ctx.fillText(`mood v${w.mood.valence.toFixed(2)} s${w.mood.strain.toFixed(2)}`, 4, 40);
@@ -588,7 +608,7 @@ function drawSeedCard(ctx, w) {
   ctx.fillStyle = "#8b93a3";
   ctx.font = "10px ui-monospace, Menlo, monospace";
   const lines = [
-    `seed        ${w.seed}`,
+    `tag         ${w.seedTag}`,
     `age         day ${w.day}  ·  ${w.era.name}`,
     `tokens      ${w.tokens}`,
     `reputation  ${Math.round(w.reputation)}`,
@@ -613,7 +633,7 @@ function drawSeedCard(ctx, w) {
   }
   ctx.fillStyle = "#5f6675";
   ctx.font = "9px ui-monospace, Menlo, monospace";
-  ctx.fillText("replay: ?seed=" + w.seed + "   ·   [S] close", 40, PLAYFIELD_H - 40);
+  ctx.fillText("tag " + w.seedTag + "   ·   [S] close", 40, PLAYFIELD_H - 40);
 }
 
 function drawTitle(ctx, w) {
@@ -627,7 +647,7 @@ function drawTitle(ctx, w) {
   ctx.fillStyle = "#8b93a3";
   ctx.font = "11px ui-monospace, Menlo, monospace";
   ctx.fillText("a life that runs itself", W / 2, H / 2 - 30);
-  ctx.fillText(`seed ${w.seed}`, W / 2, H / 2 + 6);
+  ctx.fillText(`${w.seedTag}`, W / 2, H / 2 + 6);
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 500);
   ctx.fillStyle = `rgba(230,233,240,${0.35 + pulse * 0.5})`;
   ctx.font = "12px ui-monospace, Menlo, monospace";

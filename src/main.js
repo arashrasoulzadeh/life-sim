@@ -1,19 +1,21 @@
 // Browser viewer. The life runs on the server (server.mjs). Subscribes to
-// /stream, renders a 2x3 room grid (zoomable), rotates the desk-monitor iframe
-// through sites.json, loads the current game (a validated spec, never code),
-// reports viewer attention so the life earns coins, and offers read-only panels.
+// /stream (~5s), walks the agent locally between updates, renders a 2x3 room
+// grid you can zoom into and follow, browses the marketplace, inspects objects,
+// and reports viewer attention so the life earns coins. The real seed never
+// reaches the browser — only an opaque tag.
 
 import * as Audio from "./engine/audio.js";
 import { render, MUTE_RECT } from "./render/draw.js";
 import { rainIntensity } from "./sim/weather.js";
 
 const ROOM_IDS = ["window", "kitchen", "desk", "couch", "bed", "game"];
+const PLAYFIELD_H = 448;
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("screen");
 const ctx = canvas.getContext("2d");
 const roomsEl = $("rooms");
-const tbSeed = $("tb-seed");
+const tbTag = $("tb-tag");
 const tbTok = $("tb-tok");
 const tbQuote = $("tb-quote");
 const connDot = $("conn");
@@ -22,6 +24,8 @@ let world = null;
 let audioReady = false;
 let lastFx = 0;
 let moodPush = 0;
+let prevAgentRoom = null;
+let lastTs = performance.now();
 const display = { x: 256, y: 300, has: false };
 
 const ui = {
@@ -34,8 +38,10 @@ const ui = {
   llmSource: "offline",
   notice: null,
   zoom: safeLS("simyou_zoom") || null,
+  follow: safeLS("simyou_follow") === "1",
 };
 let convLog = [];
+const roomMeta = {}; // rid -> [ {id,label,price,glyph,cat,x,y,day} ]
 
 let viewerId = safeLS("simyou_viewer");
 if (!viewerId) {
@@ -61,26 +67,36 @@ function applyZoomClass() {
   const z = ui.zoom;
   roomsEl.classList.toggle("grid", !z);
   roomsEl.classList.toggle("zoom", !!z);
-  for (const rid of ROOM_IDS) cells[rid].cell.classList.toggle("active", rid === z);
+  for (const rid of ROOM_IDS) {
+    cells[rid].cell.classList.toggle("active", rid === z);
+    cells[rid].cell.classList.toggle("playable", z === "game" && rid === "game");
+  }
   $("zoombtn").hidden = !z;
+  $("followbtn").hidden = !z;
+  $("followbtn").dataset.on = ui.follow ? "1" : "0";
   $("gamecodebtn").hidden = z !== "game" || !(world && world.latestGameId);
 }
 function setZoom(z) {
   ui.zoom = z || null;
   safeLS("simyou_zoom", ui.zoom || "");
+  if (!ui.zoom) {
+    ui.follow = false;
+    safeLS("simyou_follow", "0");
+  }
   applyZoomClass();
 }
 applyZoomClass();
 
 async function refreshRooms() {
   try {
-    const r = await fetch("/api/rooms", { cache: "no-store" });
-    if (!r.ok) return;
-    const data = await r.json();
+    const data = await fetch("/api/rooms", { cache: "no-store" }).then((r) => r.json());
     roomOrder = Array.isArray(data.order) && data.order.length === 6 ? data.order : [...ROOM_IDS];
     for (const rid of ROOM_IDS) {
       const doc = data.rooms[rid];
-      if (doc && cells[rid].host.innerHTML !== doc.html) cells[rid].host.innerHTML = doc.html;
+      if (doc) {
+        if (cells[rid].host.innerHTML !== doc.html) cells[rid].host.innerHTML = doc.html;
+        roomMeta[rid] = doc.meta || [];
+      }
       cells[rid].cell.style.order = roomOrder.indexOf(rid);
     }
     shownRoomsVersion = data.version;
@@ -148,10 +164,10 @@ setInterval(() => {
   }).catch(() => {});
 }, 10000);
 
-// ---------- stream + connection status ----------
+// ---------- stream ----------
 let es = null;
 function setConn(state) {
-  connDot.dataset.state = state; // ok | wait | off
+  connDot.dataset.state = state;
   connDot.title = state === "ok" ? "connected" : state === "wait" ? "reconnecting…" : "offline";
 }
 function connect() {
@@ -176,8 +192,17 @@ function connect() {
         }
       }
     }
+    // snap the local agent if it teleported (new room, or big gap)
+    const a = snap.agent;
+    if (!display.has || a.room !== prevAgentRoom || Math.hypot(a.x - display.x, a.y - display.y) > 220) {
+      display.x = a.x;
+      display.y = a.y;
+      display.has = true;
+    }
+    prevAgentRoom = a.room;
     if (snap.roomsVersion !== shownRoomsVersion) refreshRooms();
     if ((snap.latestGameId || 0) !== mountedGameId) mountFrames();
+    if (ui.follow && ui.zoom && snap.agent.room !== ui.zoom) setZoom(snap.agent.room), (ui.follow = true), safeLS("simyou_follow", "1");
     applyZoomClass();
   };
   es.onerror = () => setConn(es && es.readyState === 2 ? "off" : "wait");
@@ -187,26 +212,29 @@ addEventListener("online", () => {
   if (!es || es.readyState === 2) connect();
 });
 
-// ---------- render loop ----------
+// ---------- render loop (walks the agent locally) ----------
 function frame(now) {
   requestAnimationFrame(frame);
+  const dt = Math.min(0.1, (now - lastTs) / 1000);
+  lastTs = now;
   rotateSite(now);
   if (!world) {
     ctx.clearRect(0, 0, 512, 512);
     return;
   }
   const a = world.agent;
-  if (!display.has) {
-    display.x = a.x;
-    display.y = a.y;
-    display.has = true;
-  } else if (a.transit > 0) {
-    display.x = a.x;
-    display.y = a.y;
-  } else {
-    display.x += (a.x - display.x) * 0.25;
-    display.y += (a.y - display.y) * 0.25;
+  // glide toward the agent's last known position at roughly its walk speed
+  const tx = a.transit > 0 ? a.x : a.tx ?? a.x;
+  const ty = a.transit > 0 ? a.y : a.ty ?? a.y;
+  const dx = tx - display.x;
+  const dy = ty - display.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist > 1) {
+    const step = Math.min(dist, 70 * dt);
+    display.x += (dx / dist) * step;
+    display.y += (dy / dist) * step;
   }
+
   const w = {
     ...world,
     started: true,
@@ -217,13 +245,13 @@ function frame(now) {
   if (audioReady && Audio.isReady()) {
     Audio.setRain(rainIntensity(world.weather.sky));
     Audio.update();
-    moodPush -= 1 / 60;
+    moodPush -= dt;
     if (moodPush <= 0) {
       Audio.setMood(world.mood.valence);
       moodPush = 1.5;
     }
   }
-  tbSeed.textContent = `seed ${world.seed}`;
+  tbTag.textContent = world.seedTag || "—";
   tbTok.textContent = `◊ ${world.bank} coins`;
   tbQuote.textContent = world.quote?.text ? world.quote.text : "a life that runs itself";
   if (ui.notice && performance.now() > ui.notice.until) ui.notice = null;
@@ -232,15 +260,18 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // ---------- panels ----------
-const aboutDlg = $("about");
-const econDlg = $("econ");
-const codeDlg = $("gamecode");
-
-$("about-btn").addEventListener("click", () => aboutDlg.showModal());
-$("about-close").addEventListener("click", () => aboutDlg.close());
+const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo") };
+$("about-btn").addEventListener("click", () => dlgs.about.showModal());
+for (const id of Object.keys(dlgs)) {
+  const c = $(`${id}-close`);
+  if (c) c.addEventListener("click", () => dlgs[id].close());
+  dlgs[id].addEventListener("click", (e) => {
+    if (e.target === dlgs[id]) dlgs[id].close();
+  });
+}
 
 async function openEcon() {
-  econDlg.showModal();
+  dlgs.econ.showModal();
   const body = $("econ-body");
   body.textContent = "loading…";
   try {
@@ -249,38 +280,73 @@ async function openEcon() {
       fetch("/api/ledger").then((r) => r.json()),
     ]);
     const rows = daily
-      .map((d) => `day ${d.day}   + ${Math.round(d.income)}   − ${Math.round(d.expense)}   = ${Math.round(d.income - d.expense) >= 0 ? "+" : ""}${Math.round(d.income - d.expense)}`)
+      .map((d) => `day ${d.day}   +${Math.round(d.income)}   −${Math.round(d.expense)}   net ${Math.round(d.income - d.expense)}`)
       .join("\n");
     const led = ledger
       .slice(0, 18)
       .map((l) => `${l.ts.slice(5, 16).replace("T", " ")}  ${l.amount > 0 ? "+" : ""}${Math.round(l.amount)}  ${l.note}`)
       .join("\n");
-    body.textContent = `BANK ${world ? world.bank : "?"} coins\n\nspend / income per day\n${rows || "  (nothing yet)"}\n\nrecent ledger\n${led || "  (nothing yet)"}`;
+    body.textContent = `BANK ${world ? world.bank : "?"} coins\n\nspend / income per day\n${rows || "  (nothing yet)"}\n\nledger\n${led || "  (nothing yet)"}`;
   } catch {
     body.textContent = "couldn't load";
   }
 }
-$("econ-close").addEventListener("click", () => econDlg.close());
+
+async function openShop() {
+  dlgs.shop.showModal();
+  const body = $("shop-body");
+  body.textContent = "loading…";
+  try {
+    const m = await fetch("/api/market").then((r) => r.json());
+    body.textContent = Object.entries(m)
+      .map(
+        ([cat, items]) =>
+          `[${cat.toUpperCase()}]  ${items.length} items\n` +
+          items.map((o) => `  ${o.glyph} ${o.label.padEnd(22)} ${String(o.price).padStart(4)}c   → ${o.room}`).join("\n"),
+      )
+      .join("\n\n");
+  } catch {
+    body.textContent = "couldn't load";
+  }
+}
 
 async function openGameCode() {
   if (!world?.latestGameId) return;
-  codeDlg.showModal();
+  dlgs.gamecode.showModal();
   const body = $("gamecode-body");
   body.textContent = "loading…";
   try {
     const g = await fetch(`/api/games/${world.latestGameId}`).then((r) => r.json());
     body.textContent =
       `"${g.title}"  ·  day ${g.createdDay}  ·  ${g.plays} plays\n\n` +
-      `This game runs the built-in kernel below — the AI only chose the numbers.\n` +
-      `No custom code is ever stored or executed.\n\n` +
+      `This game runs a built-in kernel — the AI only chose the numbers.\n` +
+      `No custom code is ever stored or executed. Zoom into the game room to play.\n\n` +
       g.describe +
-      `\n\nraw spec:\n${JSON.stringify(g.spec, null, 2)}`;
+      `\n\nspec:\n${JSON.stringify(g.spec, null, 2)}`;
   } catch {
     body.textContent = "couldn't load";
   }
 }
+
+function openObj(meta, room) {
+  const body = $("objinfo-body");
+  const roomName = (roomMeta[room] && cells[room]) ? cells[room].host.querySelector(".room-tag")?.textContent || room : room;
+  body.textContent =
+    `${meta.glyph}  ${meta.label}\n\n` +
+    `category   ${meta.cat}\n` +
+    `bought for ${meta.price} coins\n` +
+    `in ${roomName} since day ${meta.day}\n` +
+    (world ? `(day ${world.day} now — ${world.day - meta.day} days ago)` : "");
+  dlgs.objinfo.showModal();
+}
+$("shop-btn").addEventListener("click", openShop);
 $("gamecodebtn").addEventListener("click", openGameCode);
-$("gamecode-close").addEventListener("click", () => codeDlg.close());
+$("followbtn").addEventListener("click", () => {
+  ui.follow = !ui.follow;
+  safeLS("simyou_follow", ui.follow ? "1" : "0");
+  if (ui.follow && world) setZoom(world.agent.room), (ui.follow = true), safeLS("simyou_follow", "1");
+  applyZoomClass();
+});
 
 async function loadConvLog() {
   try {
@@ -291,16 +357,29 @@ async function loadConvLog() {
 }
 
 // ---------- input ----------
+function seedNum(tag) {
+  let x = 0;
+  for (const c of String(tag || "")) x = (x * 131 + c.charCodeAt(0)) >>> 0;
+  return x;
+}
 function ensureAudio() {
   if (audioReady) return;
   audioReady = true;
-  Audio.start(world ? world.seed : 0);
+  Audio.start(seedNum(world && world.seedTag));
   Audio.setMuted(ui.muted);
 }
 function toggleMute() {
   ensureAudio();
   ui.muted = !ui.muted;
   Audio.setMuted(ui.muted);
+}
+
+function hitObject(room, px, py) {
+  const list = roomMeta[room] || [];
+  for (const o of list) {
+    if (Math.hypot(o.x * 512 - px, o.y * PLAYFIELD_H - py) < 26) return o;
+  }
+  return null;
 }
 
 canvas.addEventListener("click", (e) => {
@@ -313,17 +392,28 @@ canvas.addEventListener("click", (e) => {
     return;
   }
   ensureAudio();
-  if (!ui.zoom && cy < 448) {
-    const col = cx < 256 ? 0 : 1;
-    const row = Math.min(2, Math.floor(cy / (448 / 3)));
-    const rid = roomOrder[row * 2 + col];
-    if (rid) setZoom(rid);
+  if (cy >= PLAYFIELD_H) return;
+
+  if (ui.zoom) {
+    const o = hitObject(ui.zoom, cx, cy);
+    if (o) openObj(o, ui.zoom);
+    return;
   }
+  // grid: which cell, then object-in-cell or zoom
+  const col = cx < 256 ? 0 : 1;
+  const row = Math.min(2, Math.floor(cy / (PLAYFIELD_H / 3)));
+  const rid = roomOrder[row * 2 + col];
+  if (!rid) return;
+  const lx = ((cx - col * 256) / 256) * 512;
+  const ly = ((cy - row * (PLAYFIELD_H / 3)) / (PLAYFIELD_H / 3)) * PLAYFIELD_H;
+  const o = hitObject(rid, lx, ly);
+  if (o) openObj(o, rid);
+  else setZoom(rid);
 });
 $("zoombtn").addEventListener("click", () => setZoom(null));
 
 addEventListener("keydown", (e) => {
-  if (aboutDlg.open || econDlg.open || codeDlg.open) return;
+  if (Object.values(dlgs).some((d) => d.open)) return;
   if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
   const k = e.key.toLowerCase();
   if (e.key === "Escape") return setZoom(null);
@@ -335,15 +425,19 @@ addEventListener("keydown", (e) => {
   else if (k === "d") ui.debug = !ui.debug;
   else if (k === "p") openEcon();
   else if (k === "x") toggleMute();
+  else if (k === "f") {
+    ui.follow = !ui.follow;
+    if (ui.follow && world) setZoom(world.agent.room), (ui.follow = true);
+    safeLS("simyou_follow", ui.follow ? "1" : "0");
+    applyZoomClass();
+  }
 });
 
-// refresh the open conversation panel occasionally
 setInterval(() => {
   if (ui.showConversation) loadConvLog();
 }, 8000);
 
 // ---------- PWA ----------
-// register only over real HTTPS (skips dev / preview proxies that can't serve /sw.js)
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 }

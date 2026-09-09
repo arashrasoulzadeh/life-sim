@@ -3,13 +3,13 @@
 // closed vocabularies (room objects, game kernels, routine moves, hex colours)
 // and every field is validated here before it touches the world.
 
-import { OBJECTS, OBJECT_IDS_BY_ROOM, priceOf, sellValue, isSellable } from "./objects.js";
+import { OBJECTS, MARKET, priceOf, sellValue, isSellable } from "./objects.js";
 import { TRAITS } from "./memory.js";
 import { ROOM_IDS } from "./rooms.js";
 import { ROUTINE_OPS } from "./agent.js";
 import { KERNELS, validateSpec } from "../game/kernels.js";
 
-export const GAME_COST = 400;
+export const GAME_COST = 0; // making a game is free — it only costs the AI a decision
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
 function clampTrait(v) {
@@ -42,8 +42,8 @@ export function buildPrompt(w, phase, ctx = {}) {
       return `  ${r}: ${items}${r === "desk" ? " [+ permanent monitor, unsellable]" : ""}`;
     })
     .join("\n");
-  const catalog = Object.entries(OBJECT_IDS_BY_ROOM)
-    .map(([r, ids]) => `  ${r}: ${ids.map((id) => `${id} ${priceOf(id)}c`).join(", ")}`)
+  const catalog = Object.entries(MARKET)
+    .map(([cat, items]) => `  [${cat}] ` + items.map((o) => `${o.id}(${o.price})`).join(" "))
     .join("\n");
   const kernels = Object.entries(KERNELS)
     .map(([k, d]) => `  ${k} — ${d.desc}; params: ${Object.keys(d.params).join(", ")}`)
@@ -67,21 +67,21 @@ export function buildPrompt(w, phase, ctx = {}) {
         '  "reply": string <=240,',
         '  "roomOrder": [...] or null,',
         '  "look": {...} or null,',
-        '  "buy":  [{"room","object"}]  0-2, affordable, from the catalog, in its room,',
-        '  "sell": [{"room","object"}]  0-2, present, never the monitor,',
-        `  "commissionGame": {"title": string <=48, "kernel": string, "params": object} or null  (costs ${GAME_COST}c),`,
+        '  "buy":  [{"object": marketplace id}]  0-3, must be affordable,',
+        '  "sell": [{"object": id}]  0-2, must be one you own,',
+        '  "commissionGame": {"title": string <=48, "kernel": string, "params": object} or null  (FREE — make one whenever you have an idea),',
         '  "routine": [{"op": string, "arg": optional}]  0-10 playful in-place moves, or null,',
         '  "restyle": [{"room","name"?,"wall"?,"floor"?,"accent"?}]  rename / recolour rooms (name <=24, colours #rrggbb), or null,',
         '  "newMemory": {...} or null',
         '}',
-        "Object catalog (id price):",
+        "MARKETPLACE — buy by id, and it appears in the object's listed room:",
         catalog,
         "Game kernels — you may ONLY pick one of these and set its params. You cannot write code, ever:",
         kernels,
         `routine ops (combine only these, nothing else): ${ROUTINE_OPS.join(", ")}. "say" takes a short arg, "wait" a number 1-6, "face" left/right. You cannot invent moves or write code — ever.`,
         "The six rooms are fixed — you may rename and recolour them, never add / remove / merge them, and the desk monitor always stays (it is your income).",
         ...commonRules,
-        "Spend within budget. Most evenings need no purchase and no game.",
+        "Buying objects costs coins — spend within budget. Making a game is free, so make one whenever it feels right.",
       ].join("\n")
     : [
         "You are the inner voice of SimYou, an AI assistant in a six-room apartment. This is the morning.",
@@ -218,22 +218,26 @@ export function applyEvening(w, resp) {
     game: null,
   };
 
+  w.objDay = w.objDay || {};
   for (const c of arr(resp?.sell).slice(0, 2)) {
-    const room = String(c?.room || "");
     const id = String(c?.object || "");
-    if (!w.rooms[room] || !w.rooms[room].includes(id) || !isSellable(id)) continue;
+    if (!OBJECTS[id] || !isSellable(id)) continue;
+    const room = Object.keys(w.rooms).find((r) => w.rooms[r].includes(id));
+    if (!room) continue;
     w.rooms[room] = w.rooms[room].filter((x) => x !== id);
+    delete w.objDay[`${room}:${id}`];
     const refund = sellValue(id);
     w.bank += refund;
     out.earned += refund;
     out.changes.push(`− sold ${OBJECTS[id].label} (+${refund}c)`);
   }
 
-  for (const c of arr(resp?.buy).slice(0, 2)) {
-    const room = String(c?.room || "");
+  for (const c of arr(resp?.buy).slice(0, 3)) {
     const id = String(c?.object || "");
     const o = OBJECTS[id];
-    if (!o || o.room !== room || !w.rooms[room] || w.rooms[room].includes(id)) continue;
+    if (!o) continue;
+    const room = o.room; // an item always goes to its own room
+    if (!w.rooms[room] || w.rooms[room].includes(id)) continue;
     const price = priceOf(id);
     if (w.bank < price) {
       out.changes.push(`… can't afford ${o.label} (${price}c)`);
@@ -242,6 +246,7 @@ export function applyEvening(w, resp) {
     w.bank -= price;
     out.spent += price;
     w.rooms[room].push(id);
+    w.objDay[`${room}:${id}`] = w.day;
     out.changes.push(`+ bought ${o.label} (−${price}c)`);
   }
 
@@ -249,12 +254,13 @@ export function applyEvening(w, resp) {
   if (g && typeof g === "object") {
     const spec = validateSpec(g);
     if (!spec) out.changes.push("… that game idea didn't fit any kernel");
-    else if (w.bank < GAME_COST) out.changes.push(`… saving up for a game (${GAME_COST}c)`);
     else {
-      w.bank -= GAME_COST;
-      out.spent += GAME_COST;
+      if (GAME_COST) {
+        w.bank -= GAME_COST;
+        out.spent += GAME_COST;
+      }
       out.game = { title: (str(g.title, 48) || spec.kernel).replace(/[<>]/g, ""), spec };
-      out.changes.push(`🎮 made "${out.game.title}" (−${GAME_COST}c)`);
+      out.changes.push(`🎮 made "${out.game.title}"`);
     }
   }
 

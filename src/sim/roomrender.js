@@ -1,12 +1,18 @@
 // Pure room -> doc/HTML generation. No DOM, no fetch — shared by the browser
-// viewer and the server sim loop.
-//
-// The desk monitor and the game-room screen are permanent fixtures rendered as
-// <iframe> elements; the viewer sets their `src` (rotating sites.json entries /
-// the current AI-authored game). They are never in the object catalog.
+// viewer and the server sim loop. Objects are placed into fixed slots, so the
+// ~200-item marketplace needs no hand-positioning.
 
 import { ROOMS } from "./rooms.js";
 import { OBJECTS } from "./objects.js";
+
+// slot coordinates in the 512x448 playfield (floor rows + a wall row)
+const SLOTS = [
+  { x: 64, y: 300 }, { x: 124, y: 300 }, { x: 184, y: 300 }, { x: 320, y: 300 }, { x: 380, y: 300 }, { x: 444, y: 300 },
+  { x: 92, y: 356 }, { x: 168, y: 356 }, { x: 244, y: 356 }, { x: 344, y: 356 }, { x: 420, y: 356 },
+  { x: 90, y: 96 }, { x: 150, y: 96 }, { x: 410, y: 96 }, { x: 452, y: 96 },
+  { x: 64, y: 410 }, { x: 220, y: 410 }, { x: 400, y: 410 }, { x: 470, y: 356 },
+];
+export const OBJECT_SLOTS = SLOTS;
 
 const FURNITURE = {
   desk:
@@ -24,20 +30,21 @@ const FURNITURE = {
     '<div class="furn" style="left:34%;width:35%;top:57%;height:12%;background:#4a4038"></div>' +
     '<div class="furn" style="left:35%;width:9%;top:53%;height:4.5%;background:#e8e8ee"></div>',
   game:
-    '<div class="furn" style="left:30%;width:40%;top:20%;height:30%;background:#0a0a0a;box-shadow:inset 0 0 0 2px #000">' +
+    '<div class="furn" style="left:30%;width:40%;top:18%;height:27%;background:#0a0a0a;box-shadow:inset 0 0 0 2px #000">' +
     '<iframe class="ifr game-frame" title="game" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy"></iframe></div>' +
-    '<div class="furn" style="left:30%;width:40%;top:50%;height:2.5%;background:#3a4a40"></div>',
+    '<div class="furn" style="left:30%;width:40%;top:45%;height:2.5%;background:#3a4a40"></div>',
 };
 
 function esc(s) {
   return String(s).replace(/[<>"&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", '"': "&quot;", "&": "&amp;" })[c]);
 }
 
-export function objHtml(id) {
+export function objHtml(id, slot) {
   const o = OBJECTS[id];
   if (!o) return "";
-  const x = ((o.pos.x / 512) * 100).toFixed(2);
-  const y = ((o.pos.y / 448) * 100).toFixed(2);
+  const p = SLOTS[slot % SLOTS.length];
+  const x = ((p.x / 512) * 100).toFixed(2);
+  const y = ((p.y / 448) * 100).toFixed(2);
   return `<span class="obj" data-obj="${id}" title="${esc(o.label)}" style="left:${x}%;top:${y}%">${o.glyph}</span>`;
 }
 
@@ -56,20 +63,40 @@ export function roomHtml(roomId, objects, style) {
     `<div class="room" data-room="${roomId}" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent}">` +
     '<div class="wall"></div><div class="floor"></div>' +
     (FURNITURE[roomId] || "") +
-    objects.map(objHtml).join("") +
+    objects.map((id, i) => objHtml(id, i)).join("") +
     `<span class="room-tag">${esc(name)}</span>` +
     "</div>"
   );
 }
 
-export function roomDoc(seed, roomId, objects, style) {
+export function objectsMeta(roomId, objects, objDay) {
+  return objects
+    .map((id, i) => {
+      const o = OBJECTS[id];
+      if (!o) return null;
+      const p = SLOTS[i % SLOTS.length];
+      return {
+        id,
+        label: o.label,
+        price: o.price,
+        glyph: o.glyph,
+        cat: o.cat,
+        x: +(p.x / 512).toFixed(4),
+        y: +(p.y / 448).toFixed(4),
+        day: (objDay && objDay[`${roomId}:${id}`]) || 1,
+      };
+    })
+    .filter(Boolean);
+}
+
+export function roomDoc(seed, roomId, objects, style, objDay) {
   const { name, palette } = roomStyle(roomId, style);
   return {
     room: roomId,
     name,
-    seed: String(seed),
     palette,
     objects: [...objects],
+    meta: objectsMeta(roomId, objects, objDay),
     html: roomHtml(roomId, objects, style),
     updated: new Date().toISOString(),
   };
@@ -78,6 +105,6 @@ export function roomDoc(seed, roomId, objects, style) {
 export function initDocs(world) {
   world.roomDocs = {};
   for (const rid of Object.keys(world.rooms)) {
-    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle);
+    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay);
   }
 }
