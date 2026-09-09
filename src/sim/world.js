@@ -85,6 +85,7 @@ export function createWorld(seed) {
     roomOrder: [...ROOM_IDS], // grid order; the AI may reorder it
     roomStyle: {}, // { [id]: { name?, palette?:{wall,floor,accent}, pattern? } } — AI overrides, validated
     windowArt: null, // { style, hue, hue2, density } — generative art the AI hangs in the window
+    keepsake: null, // "room:id" — one object it will never sell
     objDay: Object.fromEntries(
       ROOM_IDS.flatMap((r) => (DEFAULT_OBJECTS[r] || []).map((id) => [`${r}:${id}`, 1])),
     ), // "room:obj" -> in-game day acquired

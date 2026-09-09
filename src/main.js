@@ -467,13 +467,16 @@ function openObj(meta, room) {
       ? ""
       : `\ncondition  ${meta.condition}%${meta.condition < 22 ? " — BROKEN" : meta.condition < 55 ? " — worn" : ""}`;
   const wtr = meta.water == null ? "" : `\nwater      ${meta.water}%`;
+  const keep = meta.keepsake ? "\n💛 a keepsake — it won't be sold" : "";
+  const title = meta.nick ? `${meta.glyph}  ${meta.nick}\n"${meta.label}"` : `${meta.glyph}  ${meta.label}`;
   body.textContent =
-    `${meta.glyph}  ${meta.label}\n\n` +
+    `${title}\n\n` +
     `category   ${meta.cat}\n` +
     `bought for ${meta.price} coins\n` +
     `in ${roomName} since day ${meta.day}` +
     cond +
     wtr +
+    keep +
     "\n" +
     (world ? `(day ${world.day} now — ${world.day - meta.day} days ago)` : "");
   dlgs.objinfo.showModal();

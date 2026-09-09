@@ -42,26 +42,54 @@ function esc(s) {
   return String(s).replace(/[<>"&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", '"': "&quot;", "&": "&amp;" })[c]);
 }
 
-export function objHtml(id, slot, roomId, plants, wear) {
+export function objHtml(id, slot, roomId, plants, wear, names) {
   const o = OBJECTS[id];
   if (!o) return "";
   const p = SLOTS[slot % SLOTS.length];
   const x = ((p.x / 512) * 100).toFixed(2);
   const y = ((p.y / 448) * 100).toFixed(2);
   const glyph = wearGlyph(wear, roomId, id, plantGlyph(plants, roomId, id, o.glyph));
-  return `<span class="obj" data-obj="${id}" title="${esc(o.label)}" style="left:${x}%;top:${y}%">${glyph}</span>`;
+  const nick = names && typeof names[id] === "string" ? names[id] : "";
+  return `<span class="obj" data-obj="${id}" title="${esc(nick ? `${nick} — ${o.label}` : o.label)}" style="left:${x}%;top:${y}%">${glyph}</span>`;
 }
 
 export const WALL_PATTERNS = ["plain", "stripes", "dots", "grid", "checker", "diagonal"];
+export const FLOOR_PATTERNS = ["plain", "planks", "tiles", "rug", "herringbone"];
+
+function num(v, lo, hi, d) {
+  v = Number(v);
+  return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d;
+}
 
 export function roomStyle(roomId, style) {
   const base = ROOMS[roomId];
   const s = (style && style[roomId]) || {};
+  const light = s.light && typeof s.light === "object"
+    ? { warmth: num(s.light.warmth, 0, 1, 0.5), level: num(s.light.level, 0.55, 1.35, 1) }
+    : null;
   return {
     name: typeof s.name === "string" && s.name ? s.name : base.name,
     palette: { ...base.palette, ...(s.palette || {}) },
     pattern: WALL_PATTERNS.includes(s.pattern) ? s.pattern : "plain",
+    floor: FLOOR_PATTERNS.includes(s.floorPattern) ? s.floorPattern : "plain",
+    light,
+    sign: typeof s.sign === "string" && s.sign.trim() ? s.sign.replace(/[<>]/g, "").trim().slice(0, 40) : "",
+    names: s.names && typeof s.names === "object" ? s.names : {},
   };
+}
+
+function lightLayer(light) {
+  if (!light) return "";
+  const warm = `hsl(${Math.round(30 + light.warmth * 20)} 60% 60%)`;
+  const cool = `hsl(${Math.round(210 - light.warmth * 30)} 45% 40%)`;
+  const tint = light.warmth > 0.5 ? warm : cool;
+  const op = Math.abs(light.warmth - 0.5) * 0.5;
+  const dim = light.level < 1 ? `,rgba(3,4,8,${((1 - light.level) * 0.8).toFixed(2)})` : "";
+  const glow = light.level > 1 ? `,rgba(255,240,210,${((light.level - 1) * 0.35).toFixed(2)})` : "";
+  return `<div class="light" style="background:linear-gradient(${hexA(tint, op)}${dim}${glow})"></div>`;
+}
+function hexA(c, a) {
+  return `color-mix(in srgb, ${c} ${Math.round(a * 100)}%, transparent)`;
 }
 
 function winFurn(art) {
@@ -70,18 +98,21 @@ function winFurn(art) {
 }
 
 export function roomHtml(roomId, objects, style, plants, wear, windowArt) {
-  const { name, palette: p, pattern } = roomStyle(roomId, style);
+  const st = roomStyle(roomId, style);
+  const p = st.palette;
   return (
     `<div class="room" data-room="${roomId}" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent}">` +
-    `<div class="wall" data-pattern="${pattern}"></div><div class="floor"></div>` +
+    `<div class="wall" data-pattern="${st.pattern}"></div><div class="floor" data-pattern="${st.floor}"></div>` +
+    lightLayer(st.light) +
     (roomId === "window" ? winFurn(windowArt) : FURNITURE[roomId] || "") +
-    objects.map((id, i) => objHtml(id, i, roomId, plants, wear)).join("") +
-    `<span class="room-tag">${esc(name)}</span>` +
+    objects.map((id, i) => objHtml(id, i, roomId, plants, wear, st.names)).join("") +
+    (st.sign ? `<span class="room-sign">${esc(st.sign)}</span>` : "") +
+    `<span class="room-tag">${esc(st.name)}</span>` +
     "</div>"
   );
 }
 
-export function objectsMeta(roomId, objects, objDay, plants, wear) {
+export function objectsMeta(roomId, objects, objDay, plants, wear, names, keepsake) {
   return objects
     .map((id, i) => {
       const o = OBJECTS[id];
@@ -90,6 +121,8 @@ export function objectsMeta(roomId, objects, objDay, plants, wear) {
       return {
         id,
         label: o.label,
+        nick: names && typeof names[id] === "string" ? names[id] : "",
+        keepsake: keepsake === `${roomId}:${id}`,
         price: o.price,
         glyph: wearGlyph(wear, roomId, id, plantGlyph(plants, roomId, id, o.glyph)),
         cat: o.cat,
@@ -103,15 +136,17 @@ export function objectsMeta(roomId, objects, objDay, plants, wear) {
     .filter(Boolean);
 }
 
-export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, windowArt) {
-  const { name, palette, pattern } = roomStyle(roomId, style);
+export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, windowArt, keepsake) {
+  const st = roomStyle(roomId, style);
   return {
     room: roomId,
-    name,
-    palette,
-    pattern,
+    name: st.name,
+    palette: st.palette,
+    pattern: st.pattern,
+    floor: st.floor,
+    sign: st.sign,
     objects: [...objects],
-    meta: objectsMeta(roomId, objects, objDay, plants, wear),
+    meta: objectsMeta(roomId, objects, objDay, plants, wear, st.names, keepsake),
     html: roomHtml(roomId, objects, style, plants, wear, windowArt),
     updated: new Date().toISOString(),
   };
@@ -120,6 +155,6 @@ export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, wind
 export function initDocs(world) {
   world.roomDocs = {};
   for (const rid of Object.keys(world.rooms)) {
-    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt);
+    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake);
   }
 }

@@ -17,7 +17,7 @@ import { spouseWord } from "./people.js";
 import { psycheLine, isConflictToday, resolveLean } from "./psyche.js";
 import { canWrite, cleanWriting, writingPrompt } from "./writing.js";
 import { isBroken, repair, repairCost, wearPct } from "./wear.js";
-import { WALL_PATTERNS } from "./roomrender.js";
+import { WALL_PATTERNS, FLOOR_PATTERNS } from "./roomrender.js";
 import { ART_STYLES, cleanWindowArt, windowArtLabel } from "./windowart.js";
 
 const VOTE_LABELS = { work: "work hard", rest: "rest & recover", social: "reach out to others", learn: "learn something", tend: "tend the home" };
@@ -114,8 +114,11 @@ export function buildPrompt(w, phase, ctx = {}) {
         '  "commissionGame": {"title": string <=48, "kernel": string, "params": object} or null  (FREE — make one whenever you have an idea),',
         '  "routine": [{"op": string, "arg": optional}]  0-10 playful in-place moves, or null,',
         '  "repair": [{"object": id}]  0-2 worn / broken things to fix (costs a small fee), or null,',
-        `  "restyle": [{"room","name"?,"wall"?,"floor"?,"accent"?,"pattern"?}]  rename / recolour / repaint rooms (name <=24, colours #rrggbb, pattern one of ${WALL_PATTERNS.join("|")}), or null,`,
+        `  "restyle": [{"room","name"?,"wall"?,"floor"?,"accent"?,"pattern"?,"floorPattern"?,"light"?,"sign"?,"nickname"?}]  0-6 rooms:`,
+        `     name <=24, wall/floor/accent are #rrggbb, pattern (wall) one of ${WALL_PATTERNS.join("|")}, floorPattern one of ${FLOOR_PATTERNS.join("|")},`,
+        `     light {"warmth":0-1,"level":0.55-1.35}, sign is a short text <=40 hung on the wall, nickname {"objectId":"a name <=20"} for things in that room. or null,`,
         `  "windowArt": {"style": one of ${ART_STYLES.join("|")}, "hue": 0-360, "hue2": 0-360, "density": 0.2-1} or null  (generative art for the window),`,
+        `  "keepsake": an object id you own and will never sell, or "" to clear, or null,`,
         '  "newMemory": {...} or null',
         '}',
         "MARKETPLACE — buy by id, and it appears in the object's listed room:",
@@ -237,6 +240,30 @@ function applyRestyle(w, list) {
       cur.pattern = r.pattern;
       touched = true;
     }
+    if (typeof r.floorPattern === "string" && FLOOR_PATTERNS.includes(r.floorPattern)) {
+      cur.floorPattern = r.floorPattern;
+      touched = true;
+    }
+    if (r.light && typeof r.light === "object") {
+      cur.light = {
+        warmth: Math.max(0, Math.min(1, Number(r.light.warmth) || 0.5)),
+        level: Math.max(0.55, Math.min(1.35, Number(r.light.level) || 1)),
+      };
+      touched = true;
+    }
+    if (typeof r.sign === "string") {
+      cur.sign = r.sign.replace(/[<>]/g, "").trim().slice(0, 40);
+      touched = true;
+    }
+    if (r.nickname && typeof r.nickname === "object") {
+      cur.names = { ...(cur.names || {}) };
+      for (const [oid, nm] of Object.entries(r.nickname).slice(0, 4)) {
+        if (OBJECTS[oid] && OBJECTS[oid].room === id && typeof nm === "string" && nm.trim()) {
+          cur.names[oid] = nm.replace(/[<>]/g, "").trim().slice(0, 20);
+          touched = true;
+        }
+      }
+    }
     if (touched) {
       w.roomStyle[id] = cur;
       done.push(cur.name || id);
@@ -328,6 +355,10 @@ export function applyEvening(w, resp) {
     if (!OBJECTS[id] || !isSellable(id)) continue;
     const room = Object.keys(w.rooms).find((r) => w.rooms[r].includes(id));
     if (!room) continue;
+    if (w.keepsake === `${room}:${id}`) {
+      out.changes.push(`… won't sell ${OBJECTS[id].label} — it's a keepsake`);
+      continue;
+    }
     w.rooms[room] = w.rooms[room].filter((x) => x !== id);
     delete w.objDay[`${room}:${id}`];
     const refund = sellValue(id);
@@ -403,6 +434,19 @@ export function applyEvening(w, resp) {
   if (art) {
     w.windowArt = art;
     out.changes.push(`🪟 hung ${windowArtLabel(art)} in the window`);
+  }
+
+  if (typeof resp?.keepsake === "string") {
+    if (resp.keepsake === "") {
+      w.keepsake = null;
+    } else {
+      const id = resp.keepsake;
+      const room = OBJECTS[id] && Object.keys(w.rooms).find((r) => w.rooms[r].includes(id));
+      if (room) {
+        w.keepsake = `${room}:${id}`;
+        out.changes.push(`💛 ${OBJECTS[id].label} is a keepsake now`);
+      }
+    }
   }
 
   if (applyReorder(w, resp?.roomOrder)) out.changes.push("↻ rooms reordered");
