@@ -222,6 +222,109 @@ KERNEL_FN.snake = (p) => {
   });
 };
 
+KERNEL_FN.starfield = (p) => {
+  const stars = Array.from({ length: p.count }, () => ({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random() }));
+  loop(() => {
+    ctx.fillStyle = p.warp ? "rgba(5,7,10,0.35)" : "#05070a";
+    ctx.fillRect(0, 0, W, H);
+    const cx = W / 2, cy = H / 2;
+    for (const s of stars) {
+      s.z -= 0.006 * p.speed;
+      if (s.z <= 0.02) { s.x = Math.random() * 2 - 1; s.y = Math.random() * 2 - 1; s.z = 1; }
+      const k = 1 / s.z;
+      const x = cx + s.x * k * cx * 0.9;
+      const y = cy + s.y * k * cy * 0.9;
+      if (x < 0 || x > W || y < 0 || y > H) continue;
+      const r = Math.max(0.4, (1 - s.z) * 2.4);
+      ctx.fillStyle = `hsl(${p.hue + (1 - s.z) * 40} 60% ${55 + (1 - s.z) * 30}%)`;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  });
+};
+
+KERNEL_FN.flock = (p) => {
+  const b = Array.from({ length: p.count }, () => ({ x: Math.random() * W, y: Math.random() * H, a: Math.random() * 6.28 }));
+  loop(() => {
+    ctx.fillStyle = "rgba(5,7,10,0.3)";
+    ctx.fillRect(0, 0, W, H);
+    for (const t of takeTaps()) for (const o of b) { const d = Math.atan2(o.y - t.y, o.x - t.x); o.a = d; }
+    let mx = 0, my = 0;
+    for (const o of b) { mx += o.x; my += o.y; }
+    mx /= b.length; my /= b.length;
+    for (const o of b) {
+      let ax = 0, ay = 0, n = 0;
+      for (const q of b) {
+        const dx = q.x - o.x, dy = q.y - o.y, dd = dx * dx + dy * dy;
+        if (dd > 0 && dd < 2000) { ax -= dx / dd * 20; ay -= dy / dd * 20; n++; }
+      }
+      const toC = Math.atan2(my - o.y, mx - o.x);
+      o.a += Math.sin(toC - o.a) * 0.03 * p.cohesion + (n ? Math.sin(Math.atan2(ay, ax) - o.a) * 0.05 : 0);
+      o.x = (o.x + Math.cos(o.a) * 1.6 * p.speed + W) % W;
+      o.y = (o.y + Math.sin(o.a) * 1.6 * p.speed + H) % H;
+      ctx.fillStyle = `hsl(${p.hue} 75% 62%)`;
+      ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.a);
+      ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(-3, 2); ctx.lineTo(-3, -2); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  });
+};
+
+KERNEL_FN.spiro = (p) => {
+  let t = 0;
+  const R = p.outer, r = p.inner, d = r * p.offset;
+  loop(() => {
+    ctx.fillStyle = "rgba(5,7,10,0.04)";
+    ctx.fillRect(0, 0, W, H);
+    const cx = W / 2, cy = H / 2, sc = Math.min(W, H) / (2 * (R + 4));
+    ctx.beginPath();
+    for (let i = 0; i < 40; i++) {
+      const a = t + i * 0.03;
+      const x = (R - r) * Math.cos(a) + d * Math.cos(((R - r) / r) * a);
+      const y = (R - r) * Math.sin(a) - d * Math.sin(((R - r) / r) * a);
+      const px = cx + x * sc, py = cy + y * sc;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.strokeStyle = `hsl(${(p.hue + t * 20) % 360} 70% 62%)`;
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    t += 0.03 * p.speed;
+  });
+};
+
+KERNEL_FN.drift = (p) => {
+  let y = H / 2, vy = 0, x = W * 0.28;
+  let gates = [];
+  let dist = 0;
+  const spawn = (gx) => gates.push({ x: gx, cy: 30 + Math.random() * (H - 60) });
+  spawn(W); spawn(W * 1.5);
+  loop((dt) => {
+    const push = input.dir && performance.now() - input.dirAt < 400;
+    vy += p.gravity * 0.05 * (dt / 16);
+    if (push || input.burst) { vy -= 0.22; input.burst = 0; }
+    for (const t of takeTaps()) { vy -= 0.6; void t; }
+    y += vy;
+    if (y < 8) { y = 8; vy = 0; }
+    if (y > H - 8) { y = H - 8; vy = 0; }
+    const spd = 1.6 * p.speed * (dt / 16);
+    dist += spd;
+    for (const g of gates) g.x -= spd;
+    if (gates[0] && gates[0].x < -20) { gates.shift(); spawn(gates[gates.length - 1].x + W * 0.55); }
+    ctx.fillStyle = "#05070a";
+    ctx.fillRect(0, 0, W, H);
+    for (const g of gates) {
+      ctx.strokeStyle = `hsl(${p.hue} 60% 55%)`;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(g.x, 0); ctx.lineTo(g.x, g.cy - p.gap / 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(g.x, g.cy + p.gap / 2); ctx.lineTo(g.x, H); ctx.stroke();
+    }
+    ctx.fillStyle = `hsl(${p.hue + 40} 80% 65%)`;
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, 6.29); ctx.fill();
+    ctx.fillStyle = "#5f6675";
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.fillText(String(Math.floor(dist / 100)), 8, 16);
+  });
+};
+
 function loop(fn) {
   let last = performance.now();
   const tick = (now) => {

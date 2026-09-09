@@ -6,6 +6,7 @@ import { ROOMS } from "./rooms.js";
 import { OBJECTS } from "./objects.js";
 import { plantGlyph, plantWater } from "./plants.js";
 import { wearGlyph, wearPct } from "./wear.js";
+import { windowArtCss } from "./windowart.js";
 
 // slot coordinates in the 512x448 playfield (floor rows + a wall row)
 const SLOTS = [
@@ -25,7 +26,7 @@ const FURNITURE = {
   kitchen:
     '<div class="furn" style="left:9%;width:39%;top:52%;height:3%;background:#7d7d86"></div>' +
     '<div class="furn" style="left:9%;width:39%;top:55%;height:10%;background:#3a3a40"></div>',
-  window: '<div class="furn win" style="left:28%;width:44%;top:14%;height:34%;background:#0c1430"></div>',
+  window: '<div class="furn win" style="left:28%;width:44%;top:14%;height:34%;background:#0c1430"></div>', // background swapped in by winFurn()
   couch:
     '<div class="furn" style="left:53%;width:31%;top:56%;height:13%;background:#463a56;border-radius:6px 6px 0 0"></div>',
   bed:
@@ -51,21 +52,29 @@ export function objHtml(id, slot, roomId, plants, wear) {
   return `<span class="obj" data-obj="${id}" title="${esc(o.label)}" style="left:${x}%;top:${y}%">${glyph}</span>`;
 }
 
+export const WALL_PATTERNS = ["plain", "stripes", "dots", "grid", "checker", "diagonal"];
+
 export function roomStyle(roomId, style) {
   const base = ROOMS[roomId];
   const s = (style && style[roomId]) || {};
   return {
     name: typeof s.name === "string" && s.name ? s.name : base.name,
     palette: { ...base.palette, ...(s.palette || {}) },
+    pattern: WALL_PATTERNS.includes(s.pattern) ? s.pattern : "plain",
   };
 }
 
-export function roomHtml(roomId, objects, style, plants, wear) {
-  const { name, palette: p } = roomStyle(roomId, style);
+function winFurn(art) {
+  const bg = windowArtCss(art).replace(/"/g, "'");
+  return `<div class="furn win" style="left:28%;width:44%;top:14%;height:34%;background:${bg}"></div>`;
+}
+
+export function roomHtml(roomId, objects, style, plants, wear, windowArt) {
+  const { name, palette: p, pattern } = roomStyle(roomId, style);
   return (
     `<div class="room" data-room="${roomId}" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent}">` +
-    '<div class="wall"></div><div class="floor"></div>' +
-    (FURNITURE[roomId] || "") +
+    `<div class="wall" data-pattern="${pattern}"></div><div class="floor"></div>` +
+    (roomId === "window" ? winFurn(windowArt) : FURNITURE[roomId] || "") +
     objects.map((id, i) => objHtml(id, i, roomId, plants, wear)).join("") +
     `<span class="room-tag">${esc(name)}</span>` +
     "</div>"
@@ -94,15 +103,16 @@ export function objectsMeta(roomId, objects, objDay, plants, wear) {
     .filter(Boolean);
 }
 
-export function roomDoc(seed, roomId, objects, style, objDay, plants, wear) {
-  const { name, palette } = roomStyle(roomId, style);
+export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, windowArt) {
+  const { name, palette, pattern } = roomStyle(roomId, style);
   return {
     room: roomId,
     name,
     palette,
+    pattern,
     objects: [...objects],
     meta: objectsMeta(roomId, objects, objDay, plants, wear),
-    html: roomHtml(roomId, objects, style, plants, wear),
+    html: roomHtml(roomId, objects, style, plants, wear, windowArt),
     updated: new Date().toISOString(),
   };
 }
@@ -110,6 +120,6 @@ export function roomDoc(seed, roomId, objects, style, objDay, plants, wear) {
 export function initDocs(world) {
   world.roomDocs = {};
   for (const rid of Object.keys(world.rooms)) {
-    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants, world.wear);
+    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt);
   }
 }

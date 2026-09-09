@@ -302,6 +302,7 @@ function restore(seed, json) {
   for (const r of ROOM_IDS) if (!w.rooms[r]) w.rooms[r] = [];
   if (!Array.isArray(w.roomOrder) || w.roomOrder.length !== ROOM_IDS.length) w.roomOrder = [...ROOM_IDS];
   if (!w.roomStyle || typeof w.roomStyle !== "object") w.roomStyle = {};
+  if (!("windowArt" in w)) w.windowArt = null;
   if (!w.agent.skills) w.agent.skills = { writing: 4, coding: 4, tinkering: 4, talking: 4 };
   if (!w.outside) w.outside = { season: "spring", neighbour: "the courier who always waves", neighbourSeenDay: 0 };
   if (!w.plants) w.plants = {};
@@ -502,7 +503,7 @@ function regenRooms(force) {
   for (const rid of ROOM_IDS) {
     const cur = world.roomDocs[rid];
     if (force || !cur || (cur.objects || []).join(",") !== (world.rooms[rid] || []).join(",")) {
-      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay, world.plants, world.wear);
+      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt);
       bumped = true;
     }
   }
@@ -811,6 +812,7 @@ function viewSnapshot() {
       : null,
     household: world.household || null,
     togetherness: Math.round(world.togetherness ?? 50),
+    windowArt: world.windowArt || null,
     finances: world.finances
       ? { broke: !!world.finances.broke, missedRent: world.finances.missedRent || 0, line: financeLine(world) }
       : null,

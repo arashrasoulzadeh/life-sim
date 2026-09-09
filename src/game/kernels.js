@@ -53,6 +53,43 @@ export const KERNELS = {
       hue: { type: "int", min: 0, max: 360, def: 110 },
     },
   },
+  starfield: {
+    desc: "flying through a field of stars",
+    params: {
+      count: { type: "int", min: 40, max: 400, def: 160 },
+      speed: { type: "num", min: 0.3, max: 4, def: 1.4 },
+      hue: { type: "int", min: 0, max: 360, def: 210 },
+      warp: { type: "bool", def: true },
+    },
+  },
+  flock: {
+    desc: "a flock of boids drifting and turning together",
+    params: {
+      count: { type: "int", min: 12, max: 120, def: 50 },
+      speed: { type: "num", min: 0.4, max: 3, def: 1.2 },
+      cohesion: { type: "num", min: 0, max: 2, def: 1 },
+      hue: { type: "int", min: 0, max: 360, def: 30 },
+    },
+  },
+  spiro: {
+    desc: "a spirograph tracing looping curves",
+    params: {
+      outer: { type: "int", min: 40, max: 140, def: 96 },
+      inner: { type: "int", min: 10, max: 90, def: 41 },
+      offset: { type: "num", min: 0.2, max: 1, def: 0.7 },
+      speed: { type: "num", min: 0.3, max: 3, def: 1.2 },
+      hue: { type: "int", min: 0, max: 360, def: 300 },
+    },
+  },
+  drift: {
+    desc: "a lander you nudge down through gates",
+    params: {
+      gravity: { type: "num", min: 0.2, max: 1.6, def: 0.7 },
+      gap: { type: "int", min: 40, max: 120, def: 78 },
+      speed: { type: "num", min: 0.5, max: 2.5, def: 1.1 },
+      hue: { type: "int", min: 0, max: 360, def: 160 },
+    },
+  },
 };
 
 export const KERNEL_IDS = Object.keys(KERNELS);

@@ -17,6 +17,8 @@ import { spouseWord } from "./people.js";
 import { psycheLine, isConflictToday, resolveLean } from "./psyche.js";
 import { canWrite, cleanWriting, writingPrompt } from "./writing.js";
 import { isBroken, repair, repairCost, wearPct } from "./wear.js";
+import { WALL_PATTERNS } from "./roomrender.js";
+import { ART_STYLES, cleanWindowArt, windowArtLabel } from "./windowart.js";
 
 const VOTE_LABELS = { work: "work hard", rest: "rest & recover", social: "reach out to others", learn: "learn something", tend: "tend the home" };
 
@@ -112,7 +114,8 @@ export function buildPrompt(w, phase, ctx = {}) {
         '  "commissionGame": {"title": string <=48, "kernel": string, "params": object} or null  (FREE — make one whenever you have an idea),',
         '  "routine": [{"op": string, "arg": optional}]  0-10 playful in-place moves, or null,',
         '  "repair": [{"object": id}]  0-2 worn / broken things to fix (costs a small fee), or null,',
-        '  "restyle": [{"room","name"?,"wall"?,"floor"?,"accent"?}]  rename / recolour rooms (name <=24, colours #rrggbb), or null,',
+        `  "restyle": [{"room","name"?,"wall"?,"floor"?,"accent"?,"pattern"?}]  rename / recolour / repaint rooms (name <=24, colours #rrggbb, pattern one of ${WALL_PATTERNS.join("|")}), or null,`,
+        `  "windowArt": {"style": one of ${ART_STYLES.join("|")}, "hue": 0-360, "hue2": 0-360, "density": 0.2-1} or null  (generative art for the window),`,
         '  "newMemory": {...} or null',
         '}',
         "MARKETPLACE — buy by id, and it appears in the object's listed room:",
@@ -230,6 +233,10 @@ function applyRestyle(w, list) {
       }
     }
     if (Object.keys(pal).length) cur.palette = pal;
+    if (typeof r.pattern === "string" && WALL_PATTERNS.includes(r.pattern)) {
+      cur.pattern = r.pattern;
+      touched = true;
+    }
     if (touched) {
       w.roomStyle[id] = cur;
       done.push(cur.name || id);
@@ -390,6 +397,12 @@ export function applyEvening(w, resp) {
   if (restyled.length) {
     out.restyled = restyled;
     out.changes.push(`🖌 restyled ${restyled.join(", ")}`);
+  }
+
+  const art = cleanWindowArt(resp?.windowArt);
+  if (art) {
+    w.windowArt = art;
+    out.changes.push(`🪟 hung ${windowArtLabel(art)} in the window`);
   }
 
   if (applyReorder(w, resp?.roomOrder)) out.changes.push("↻ rooms reordered");
