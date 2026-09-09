@@ -253,9 +253,13 @@ function frame(now) {
   }
   tbTag.textContent = world.seedTag || "—";
   const season = world.outside?.season;
-  $("tb-season").textContent = season ? `${SEASON_GLYPH[season] || ""} ${season}` : "";
-  const unread = world.notesUnread || 0;
-  $("guest-btn").textContent = unread ? `guestbook (${unread})` : "guestbook";
+  const seasonEl = $("tb-season");
+  if (seasonEl) seasonEl.textContent = season ? `${SEASON_GLYPH[season] || ""} ${season}` : "";
+  const gbtn = $("guest-btn");
+  if (gbtn) {
+    const unread = world.notesUnread || 0;
+    gbtn.textContent = unread ? `guestbook (${unread})` : "guestbook";
+  }
   tbTok.textContent = `◊ ${world.bank} coins`;
   tbQuote.textContent = world.quote?.text ? world.quote.text : "a life that runs itself";
   if (ui.notice && performance.now() > ui.notice.until) ui.notice = null;
@@ -267,6 +271,7 @@ requestAnimationFrame(frame);
 const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo"), guest: $("guest") };
 $("about-btn").addEventListener("click", () => dlgs.about.showModal());
 for (const id of Object.keys(dlgs)) {
+  if (!dlgs[id]) continue;
   const c = $(`${id}-close`);
   if (c) c.addEventListener("click", () => dlgs[id].close());
   dlgs[id].addEventListener("click", (e) => {
@@ -357,8 +362,8 @@ async function openGuest() {
     body.textContent = "couldn't load";
   }
 }
-$("guest-btn").addEventListener("click", openGuest);
-$("guest-send").addEventListener("click", async () => {
+$("guest-btn")?.addEventListener("click", openGuest);
+$("guest-send")?.addEventListener("click", async () => {
   const text = $("guest-text").value.trim();
   const name = $("guest-name").value.trim();
   const msg = $("guest-msg");
