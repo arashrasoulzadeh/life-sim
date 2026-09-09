@@ -165,7 +165,7 @@ export function scoreActions(agent, env, rng) {
 
     // drawn toward wherever the spouse is (they share the day)
     if (env.partnerRoom && action.room === env.partnerRoom && action.id !== "work") {
-      score *= 1.3 + (env.togetherWant || 0);
+      score *= 1.7 + (env.togetherWant || 0) * 1.5;
     }
 
     // context modifiers

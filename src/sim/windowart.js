@@ -65,3 +65,15 @@ export function windowArtCss(art) {
 export function windowArtLabel(art) {
   return art ? `${art.style} in ${art.hue}°` : "clear glass";
 }
+
+// a fresh procedural composition — used to rotate the window on its own when
+// the AI hasn't chosen one lately
+export function autoWindowArt(rng) {
+  const h = rng.int(0, 360);
+  return {
+    style: rng.pick(ART_STYLES),
+    hue: h,
+    hue2: (h + rng.int(40, 200)) % 360,
+    density: Math.round((0.35 + rng.next() * 0.55) * 100) / 100,
+  };
+}

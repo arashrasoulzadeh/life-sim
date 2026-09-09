@@ -90,7 +90,75 @@ export const KERNELS = {
       hue: { type: "int", min: 0, max: 360, def: 160 },
     },
   },
+  wave: {
+    desc: "a field of bars rippling like water",
+    params: {
+      bars: { type: "int", min: 12, max: 90, def: 40 },
+      speed: { type: "num", min: 0.3, max: 3, def: 1.2 },
+      amp: { type: "num", min: 0.2, max: 1, def: 0.6 },
+      hue: { type: "int", min: 0, max: 360, def: 195 },
+    },
+  },
+  fireworks: {
+    desc: "shells launching and bursting",
+    params: {
+      rate: { type: "num", min: 0.3, max: 3, def: 1 },
+      spread: { type: "int", min: 20, max: 90, def: 50 },
+      gravity: { type: "num", min: 0.02, max: 0.16, def: 0.06 },
+      hue: { type: "int", min: 0, max: 360, def: 20 },
+    },
+  },
+  tunnel: {
+    desc: "flying down an endless polygon tunnel",
+    params: {
+      sides: { type: "int", min: 3, max: 10, def: 6 },
+      speed: { type: "num", min: 0.3, max: 3, def: 1.3 },
+      twist: { type: "num", min: 0, max: 2, def: 0.6 },
+      hue: { type: "int", min: 0, max: 360, def: 260 },
+    },
+  },
+  pong: {
+    desc: "two paddles rallying by themselves",
+    params: {
+      speed: { type: "num", min: 0.4, max: 3, def: 1.2 },
+      paddle: { type: "int", min: 20, max: 70, def: 40 },
+      hue: { type: "int", min: 0, max: 360, def: 90 },
+    },
+  },
 };
+
+// nudge a spec's numbers a little (the AI fiddling with its game)
+export function nudgeSpec(spec, rng) {
+  const def = KERNELS[spec && spec.kernel];
+  if (!def) return spec;
+  const params = { ...(spec.params || {}) };
+  for (const [k, s] of Object.entries(def.params)) {
+    if (s.type === "int" || s.type === "num") {
+      const span = s.max - s.min;
+      let v = Number(params[k] != null ? params[k] : s.def) + rng.range(-0.2, 0.2) * span;
+      v = Math.max(s.min, Math.min(s.max, v));
+      params[k] = s.type === "int" ? Math.round(v) : Math.round(v * 100) / 100;
+    } else if (s.type === "bool" && rng.chance(0.25)) {
+      params[k] = !params[k];
+    } else if (s.type === "enum" && rng.chance(0.3)) {
+      params[k] = rng.pick(s.values);
+    }
+  }
+  return { kernel: spec.kernel, params };
+}
+
+// a fresh, fully-random valid spec
+export function randomSpec(rng) {
+  const kernel = rng.pick(KERNEL_IDS);
+  const params = {};
+  for (const [k, s] of Object.entries(KERNELS[kernel].params)) {
+    if (s.type === "int") params[k] = rng.int(s.min, s.max + 1);
+    else if (s.type === "num") params[k] = Math.round(rng.range(s.min, s.max) * 100) / 100;
+    else if (s.type === "bool") params[k] = rng.chance(0.5);
+    else if (s.type === "enum") params[k] = rng.pick(s.values);
+  }
+  return { kernel, params };
+}
 
 export const KERNEL_IDS = Object.keys(KERNELS);
 

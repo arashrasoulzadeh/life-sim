@@ -13,6 +13,7 @@ import { checkGoal } from "./goals.js";
 import { freshOutside, stepOutside, windowEventPool } from "./outside.js";
 import { tickPlants, plantsNewDay, thirstyIn, water as waterPlant } from "./plants.js";
 import { weaveDream } from "./dreams.js";
+import { autoWindowArt } from "./windowart.js";
 import { freshRhythm, stepRhythm, rollRhythm, rhythmMods } from "./rhythm.js";
 import { freshPet, stepPet, petBond } from "./pet.js";
 import { makeCouple } from "./people.js";
@@ -313,6 +314,13 @@ function onNewDay(w) {
   ageMemory(w.memory);
   rollRhythm(w, w.rng);
   rollPsyche(w, w.rng);
+
+  // the light through the window shifts on its own every few days (the AI can
+  // still hang its own piece in the evening review, which stamps a fresh day)
+  if (!w.windowArt || w.day - (w.windowArt.day || 0) >= 3) {
+    w.windowArt = { ...autoWindowArt(w.rng), day: w.day };
+    w.fx.push("event");
+  }
   ensureWear(w);
   w._dayCharges = chargeDay(w); // rent + upkeep — the server writes these to the ledger
   w.yesterday = w.tally;

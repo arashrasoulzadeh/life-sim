@@ -433,6 +433,127 @@
     });
   };
 
+  KERNEL_FN.wave = function (p) {
+    var bars = intn(p.bars, 40, 12, 90);
+    var speed = num(p.speed, 1.2, 0.3, 3);
+    var amp = num(p.amp, 0.6, 0.2, 1);
+    var hue = num(p.hue, 195, 0, 360);
+    var t = 0;
+    loop(function () {
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      t += 0.03 * speed;
+      var bw = W / bars;
+      for (var i = 0; i < bars; i++) {
+        var ph = i * 0.35;
+        var v = (Math.sin(t + ph) + Math.sin(t * 0.6 + ph * 1.7)) * 0.5;
+        var h = (0.5 + v * 0.5 * amp) * H;
+        ctx.fillStyle = "hsl(" + (hue + i * 1.5) + " 70% " + (45 + v * 20) + "%)";
+        ctx.fillRect(i * bw, H - h, bw - 1, h);
+      }
+    });
+  };
+
+  KERNEL_FN.fireworks = function (p) {
+    var rate = num(p.rate, 1, 0.3, 3);
+    var spread = intn(p.spread, 50, 20, 90);
+    var gravity = num(p.gravity, 0.06, 0.02, 0.16);
+    var hue = num(p.hue, 20, 0, 360);
+    var shells = [];
+    var sparks = [];
+    var acc = 0;
+    loop(function (dt) {
+      acc += dt * rate;
+      if (acc > 700) {
+        acc = 0;
+        shells.push({ x: Math.random() * W, y: H, vy: -(4 + Math.random() * 3), tgt: H * (0.15 + Math.random() * 0.3), hue: hue + Math.random() * 60 });
+      }
+      ctx.fillStyle = "rgba(5,7,10,0.28)";
+      ctx.fillRect(0, 0, W, H);
+      for (var i = shells.length - 1; i >= 0; i--) {
+        var s = shells[i];
+        s.y += s.vy;
+        ctx.fillStyle = "hsl(" + s.hue + " 80% 70%)";
+        ctx.fillRect(s.x - 1, s.y - 1, 2, 2);
+        if (s.y <= s.tgt) {
+          shells.splice(i, 1);
+          var n = spread;
+          for (var k = 0; k < n; k++) {
+            var a = (k / n) * 6.2832;
+            var sp = 1 + Math.random() * 2;
+            sparks.push({ x: s.x, y: s.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, hue: s.hue });
+          }
+        }
+      }
+      for (var j = sparks.length - 1; j >= 0; j--) {
+        var q = sparks[j];
+        q.vy += gravity;
+        q.x += q.vx;
+        q.y += q.vy;
+        q.life -= 0.012;
+        if (q.life <= 0) { sparks.splice(j, 1); continue; }
+        ctx.fillStyle = "hsl(" + q.hue + " 85% " + (40 + q.life * 40) + "%)";
+        ctx.fillRect(q.x, q.y, 2, 2);
+      }
+    });
+  };
+
+  KERNEL_FN.tunnel = function (p) {
+    var sides = intn(p.sides, 6, 3, 10);
+    var speed = num(p.speed, 1.3, 0.3, 3);
+    var twist = num(p.twist, 0.6, 0, 2);
+    var hue = num(p.hue, 260, 0, 360);
+    var z = 0;
+    loop(function () {
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      z += 0.04 * speed;
+      var cx = W / 2, cy = H / 2, maxR = Math.hypot(cx, cy);
+      for (var ring = 8; ring >= 1; ring--) {
+        var f = ((ring + z) % 8) / 8;
+        var r = f * maxR;
+        var rot = z * twist + ring * 0.4;
+        ctx.strokeStyle = "hsl(" + (hue + ring * 10) + " 65% " + (20 + (1 - f) * 55) + "%)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (var i = 0; i <= sides; i++) {
+          var a = rot + (i / sides) * 6.2832;
+          var x = cx + Math.cos(a) * r;
+          var y = cy + Math.sin(a) * r;
+          if (i) ctx.lineTo(x, y);
+          else ctx.moveTo(x, y);
+        }
+        ctx.stroke();
+      }
+    });
+  };
+
+  KERNEL_FN.pong = function (p) {
+    var speed = num(p.speed, 1.2, 0.4, 3);
+    var pad = intn(p.paddle, 40, 20, 70);
+    var hue = num(p.hue, 90, 0, 360);
+    var ball = { x: W / 2, y: H / 2, vx: 2.2 * speed, vy: 1.4 * speed };
+    var l = H / 2, r = H / 2;
+    loop(function () {
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+      if (ball.y < 4 || ball.y > H - 4) ball.vy *= -1;
+      // paddles track the ball lazily
+      l += (ball.y - l) * 0.08 * speed;
+      r += (ball.y - r) * 0.08 * speed;
+      if (ball.x < 16 && Math.abs(ball.y - l) < pad / 2) { ball.vx = Math.abs(ball.vx); ball.vy += (ball.y - l) * 0.05; }
+      if (ball.x > W - 16 && Math.abs(ball.y - r) < pad / 2) { ball.vx = -Math.abs(ball.vx); ball.vy += (ball.y - r) * 0.05; }
+      if (ball.x < -20 || ball.x > W + 20) { ball.x = W / 2; ball.y = H / 2; ball.vx = (Math.random() > 0.5 ? 1 : -1) * 2.2 * speed; ball.vy = (Math.random() - 0.5) * 3; }
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "hsl(" + hue + " 60% 60%)";
+      ctx.fillRect(8, l - pad / 2, 4, pad);
+      ctx.fillRect(W - 12, r - pad / 2, 4, pad);
+      ctx.fillStyle = "hsl(" + (hue + 40) + " 80% 65%)";
+      ctx.fillRect(ball.x - 2, ball.y - 2, 4, 4);
+    });
+  };
+
   var running = false;
   function loop(fn) {
     if (running) return; // one kernel at a time

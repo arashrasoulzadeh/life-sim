@@ -24,7 +24,8 @@ import { goalFrac } from "./src/sim/goals.js";
 import { canWrite, weaveWriting } from "./src/sim/writing.js";
 import { financeLine } from "./src/sim/economy.js";
 import { ROOM_IDS } from "./src/sim/rooms.js";
-import { describeSpec } from "./src/game/kernels.js";
+import { describeSpec, validateSpec, nudgeSpec, randomSpec } from "./src/game/kernels.js";
+import { Rng } from "./src/engine/rng.js";
 import { MARKET } from "./src/sim/marketplace.js";
 import * as Gap from "./src/engine/gapgpt.js";
 
@@ -483,18 +484,45 @@ function buildCtx() {
 }
 
 // ---------- games (spec only — never code) ----------
-function commitGame(g) {
+function commitGame(g, teach = true) {
   const id = ++world.latestGameId;
   try {
     Q.gameIns.run(String(SEED), id, g.title, JSON.stringify(g.spec), world.day);
     Q.gamePrune.run(String(SEED), String(SEED));
     world.gamesCount = Q.gameList.all(String(SEED)).length;
     world.gamesMade = (world.gamesMade || 0) + 1; // lifetime — never pruned
-    // making one teaches it something
-    if (world.agent.skills) world.agent.skills.coding = Math.min(100, world.agent.skills.coding + 1.5);
+    // deliberately making one teaches it something; idle tinkering doesn't
+    if (teach && world.agent.skills) world.agent.skills.coding = Math.min(100, world.agent.skills.coding + 1.5);
     world.fx.push("memory");
   } catch (e) {
     console.error("[simyou] game persist:", e.message);
+  }
+}
+
+const GAME_NAMES = ["Drift", "Little Machine", "Idle Hands", "Something Moving", "After Hours", "The Loop", "Quiet Game", "No Rules", "Passing Time", "Screen Test", "Toy", "Study #"];
+function gameName(rng, n) {
+  const s = rng.pick(GAME_NAMES);
+  return (s.endsWith("#") ? s + n : s).slice(0, 40);
+}
+
+// Each new day the AI potters with the game in the corner: usually it nudges the
+// numbers, now and then it starts something new. Needs a little coding skill.
+function evolveGame() {
+  try {
+    if (((world.agent.skills && world.agent.skills.coding) || 0) < 10) return;
+    const rng = new Rng((SEED ^ (world.day * 2654435761)) >>> 0);
+    const latest = world.latestGameId ? Q.gameSpec.get(String(SEED), world.latestGameId) : null;
+    if (!latest) {
+      commitGame({ title: gameName(rng, world.gamesMade || 1), spec: randomSpec(rng) }, false);
+      return;
+    }
+    if (!rng.chance(0.55)) return; // most days a small tweak, some days nothing
+    const cur = safeParse(latest.spec, null);
+    const next = rng.chance(0.2) || !cur ? randomSpec(rng) : nudgeSpec(cur, rng);
+    const clean = validateSpec(next);
+    if (clean) commitGame({ title: latest.title, spec: clean }, false);
+  } catch (e) {
+    console.error("[simyou] evolveGame:", e.message);
   }
 }
 
@@ -596,6 +624,8 @@ function onNewDayServer() {
   if (world.dream && world.dream.day === world.day) {
     try { Q.dreamSet.run(String(SEED), world.day, world.dream.text); } catch { /* ignore */ }
   }
+
+  evolveGame(); // the game in the corner changes a little most days
 
   // consolidate dormant, old memories into a monthly digest (kept, not deleted)
   try {

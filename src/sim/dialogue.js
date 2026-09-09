@@ -432,7 +432,7 @@ export function applyEvening(w, resp) {
 
   const art = cleanWindowArt(resp?.windowArt);
   if (art) {
-    w.windowArt = art;
+    w.windowArt = { ...art, day: w.day };
     out.changes.push(`🪟 hung ${windowArtLabel(art)} in the window`);
   }
 

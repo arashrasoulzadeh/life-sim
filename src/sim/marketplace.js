@@ -93,7 +93,9 @@ for (const [cat, def] of Object.entries(CATS)) {
     const id = slug(name, i++);
     const rIdx = hash(id + "r") % def.rooms.length;
     const room = def.rooms[rIdx];
-    const price = Math.round((def.base + (hash(id + "p") % 460)) / 10) * 10;
+    // half price — keep it a round multiple of 5, min 15
+    const raw = (def.base + (hash(id + "p") % 460)) / 2;
+    const price = Math.max(15, Math.round(raw / 5) * 5);
     const o = { id, label: name, cat, room, price, glyph, effect: def.effect(rIdx), sellable: true };
     OBJECTS[id] = o;
     MARKET[cat].push(o);

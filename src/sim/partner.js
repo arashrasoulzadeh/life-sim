@@ -63,10 +63,16 @@ export function stepTogetherness(w, dt) {
   const b = w.partner;
   const settled = a.transit <= 0 && b.transit <= 0;
   const same = settled && a.room === b.room;
-  const near = same && Math.hypot(a.x - b.x, a.y - b.y) < 70;
+  const near = same && Math.hypot(a.x - b.x, a.y - b.y) < 95;
 
-  const rate = near ? 2.2 : same ? 0.8 : -2.4;
-  w.togetherness = Math.max(0, Math.min(100, (w.togetherness ?? 50) + (rate * dt) / 2));
+  // being close builds warmth fast; drifting apart costs it slowly. Nights at
+  // home together always add a little, and it drifts toward a settled ~78.
+  let rate = near ? 4 : same ? 2 : -0.9;
+  if (w.isNight) rate = Math.max(rate, 0.6);
+  let tg = w.togetherness ?? 50;
+  tg += rate * dt;
+  tg += (80 - tg) * 0.02 * dt; // married-couple equilibrium — it breathes around here
+  w.togetherness = Math.max(0, Math.min(100, tg));
 
   // being together lifts the household mood; drifting apart for long dims it
   const bias = near ? 0.03 : w.togetherness < 25 ? -0.02 : 0;
