@@ -244,7 +244,15 @@ canvas.addEventListener("click", (e) => {
 
 zoomBtn.addEventListener("click", () => setZoom(null));
 
+const aboutDlg = document.getElementById("about");
+document.getElementById("about-btn").addEventListener("click", () => aboutDlg.showModal());
+document.getElementById("about-close").addEventListener("click", () => aboutDlg.close());
+aboutDlg.addEventListener("click", (e) => {
+  if (e.target === aboutDlg) aboutDlg.close(); // click the backdrop to dismiss
+});
+
 addEventListener("keydown", (e) => {
+  if (aboutDlg.open) return; // let the dialog handle its own keys
   const k = e.key.toLowerCase();
   if (e.key === "Escape") return setZoom(null);
   if (k === "m") ui.showMemory = !ui.showMemory;

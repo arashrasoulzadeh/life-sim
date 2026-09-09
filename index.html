@@ -34,7 +34,7 @@
       #tb-seed { color: #8fb8e8; }
       #tb-tok { color: #e0b45c; }
       #tb-note { color: #4b525e; font-size: 11px; }
-      #zoombtn {
+      #topbar button {
         font: inherit;
         font-size: 11px;
         color: #c8ccd4;
@@ -44,8 +44,31 @@
         padding: 3px 9px;
         cursor: pointer;
       }
-      #zoombtn:hover { background: #1f2530; }
+      #topbar button:hover { background: #1f2530; }
       #zoombtn[hidden] { display: none; }
+
+      #about {
+        max-width: 460px;
+        width: calc(100vw - 40px);
+        border: 1px solid #2b323d;
+        border-radius: 8px;
+        background: #12151b;
+        color: #c3c8d2;
+        padding: 22px 24px 20px;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+      #about::backdrop { background: rgba(0, 0, 0, 0.6); }
+      #about h2 { margin: 0 0 10px; font-size: 15px; color: #e6e9f0; letter-spacing: 0.06em; }
+      #about p { margin: 0 0 10px; }
+      #about b { color: #e6e9f0; }
+      #about .k { color: #e0b45c; }
+      #about .close {
+        margin-top: 6px;
+        float: right;
+        background: #1f2530;
+        border-color: #3d4655;
+      }
 
       #stage {
         position: relative;
@@ -143,15 +166,50 @@
       <span id="tb-tok">◊ 0</span>
       <span class="grow"></span>
       <button id="zoombtn" hidden>⤢ grid</button>
-      <span id="tb-note">a life that runs itself</span>
+      <button id="about-btn">what is this?</button>
     </div>
+
+    <dialog id="about">
+      <h2>WHAT IS THIS?</h2>
+      <p>
+        <b>SimYou</b> is one small life, running by itself. Nobody plays it. An AI assistant
+        lives alone in a six-room apartment and decides everything it does.
+      </p>
+      <p>
+        It moves between rooms to look after itself — <span class="k">focus</span>,
+        <span class="k">energy</span>, <span class="k">social</span> and
+        <span class="k">curiosity</span> all drain over time, so it works at the desk, eats in
+        the kitchen, watches the street from the window, messages other agents from the couch,
+        and sleeps.
+      </p>
+      <p>
+        Twice a day — dawn and dusk — it stops to think. A real language model writes its
+        inner voice (the speech bubble) and, in the evening, decides what to <b>buy</b>,
+        <b>sell</b>, rearrange, or build with the coins in its bank.
+      </p>
+      <p>
+        <b>You are its income.</b> While your tab is open, the site on the desk monitor earns
+        it coins. It spends them on furniture and on little <b>games it programs for itself</b>
+        and plays in the game room.
+      </p>
+      <p>
+        Everything it learns becomes a permanent memory that slowly shifts its personality, so
+        the life on day 400 is not the life on day 4. It has run continuously since it booted,
+        and everyone watching right now is watching the same moment.
+      </p>
+      <p style="color: #7f8a9c">
+        Click any room to zoom in. <span class="k">M</span> memories ·
+        <span class="k">C</span> its conversations · <span class="k">S</span> this life.
+      </p>
+      <button class="close" id="about-close">close</button>
+    </dialog>
 
     <div id="stage">
       <div id="rooms" class="grid"></div>
       <canvas id="screen" width="512" height="512"></canvas>
     </div>
 
-    <div id="hint">click a room to zoom · [M] memory · [C] conversations · [S] this life · [P] mute · [D] debug</div>
+    <div id="hint">new here? hit <b style="color:#8b93a3">what is this?</b> · click a room to zoom · [M] memory · [C] conversations · [S] this life · [P] mute</div>
 
     <script type="module" src="./src/main.js"></script>
   </body>
