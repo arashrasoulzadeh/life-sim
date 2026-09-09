@@ -10,8 +10,8 @@
 
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { readFileSync, existsSync, readdirSync, unlinkSync, mkdirSync } from "node:fs";
-import { extname, join, normalize } from "node:path";
+import { readFileSync, existsSync, readdirSync, unlinkSync, mkdirSync, writeFileSync } from "node:fs";
+import { extname, join, normalize, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -23,6 +23,8 @@ import { roomDoc, initDocs } from "./src/sim/roomrender.js";
 import { goalFrac } from "./src/sim/goals.js";
 import { canWrite, weaveWriting } from "./src/sim/writing.js";
 import { financeLine } from "./src/sim/economy.js";
+import { personsFile, hydrateFromFile, allPeople as rosterOf } from "./src/sim/persons.js";
+import { cleanArt } from "./src/sim/itemart.js";
 import { ROOM_IDS } from "./src/sim/rooms.js";
 import { describeSpec, validateSpec, nudgeSpec, randomSpec } from "./src/game/kernels.js";
 import { Rng } from "./src/engine/rng.js";
@@ -126,6 +128,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS impressions (seed TEXT, day INTEGER, viewer TEXT, site TEXT, seconds REAL, credited REAL, PRIMARY KEY (seed, day, viewer, site));
   CREATE TABLE IF NOT EXISTS votes (seed TEXT, day INTEGER, viewer TEXT, choice TEXT, ts TEXT, PRIMARY KEY (seed, day, viewer));
   CREATE TABLE IF NOT EXISTS writings (seed TEXT, day INTEGER, kind TEXT, txt TEXT, created_at TEXT, PRIMARY KEY (seed, day));
+  CREATE TABLE IF NOT EXISTS item_art (seed TEXT, obj TEXT, art TEXT, created_at TEXT, PRIMARY KEY (seed, obj));
 `);
 // migrate older DBs missing the reply column
 try { db.exec(`ALTER TABLE conversations ADD COLUMN reply TEXT`); } catch { /* already there */ }
@@ -238,7 +241,31 @@ const Q = {
   voteTrim: db.prepare(`DELETE FROM votes WHERE seed=? AND day < ?`),
   writeSet: db.prepare(`INSERT INTO writings (seed,day,kind,txt,created_at) VALUES (?,?,?,?,?) ON CONFLICT(seed,day) DO UPDATE SET txt=excluded.txt, kind=excluded.kind`),
   writeList: db.prepare(`SELECT day,kind,txt FROM writings WHERE seed=? ORDER BY day DESC LIMIT 20`),
+  artAll: db.prepare(`SELECT obj,art FROM item_art WHERE seed=?`),
+  artSet: db.prepare(`INSERT INTO item_art (seed,obj,art,created_at) VALUES (?,?,?,?) ON CONFLICT(seed,obj) DO UPDATE SET art=excluded.art`),
 };
+
+// next to the DB, so it lands on the writable data volume in Docker
+const WORLD_DIR = join(dirname(DB_PATH) || ".", "worlds", String(SEED));
+const PERSONS_PATH = join(WORLD_DIR, "persons.json");
+function writePersonsFile() {
+  try {
+    mkdirSync(WORLD_DIR, { recursive: true });
+    writeFileSync(PERSONS_PATH, JSON.stringify(personsFile(world), null, 2));
+  } catch (e) {
+    console.error("[simyou] persons.json:", e.message);
+  }
+}
+function loadItemArt() {
+  const m = {};
+  try {
+    for (const r of Q.artAll.all(String(SEED))) {
+      const a = safeParse(r.art, null);
+      if (a) m[r.obj] = a;
+    }
+  } catch { /* ignore */ }
+  return m;
+}
 
 const VOTE_CHOICES = ["work", "rest", "social", "learn", "tend"];
 const VOTE_LABEL = { work: "work hard", rest: "rest & recover", social: "reach out", learn: "learn something", tend: "tend the home" };
@@ -305,6 +332,8 @@ function restore(seed, json) {
   if (!w.roomStyle || typeof w.roomStyle !== "object") w.roomStyle = {};
   if (!("windowArt" in w)) w.windowArt = null;
   if (!("keepsake" in w)) w.keepsake = null;
+  if (!Array.isArray(w.extras)) w.extras = [];
+  if (!w.itemArt || typeof w.itemArt !== "object") w.itemArt = {};
   if (!w.agent.skills) w.agent.skills = { writing: 4, coding: 4, tinkering: 4, talking: 4 };
   if (!w.outside) w.outside = { season: "spring", neighbour: "the courier who always waves", neighbourSeenDay: 0 };
   if (!w.plants) w.plants = {};
@@ -348,6 +377,22 @@ const bankRow = Q.bankGet.get(String(SEED));
 world.bank = typeof world.bank === "number" ? world.bank : bankRow ? bankRow.balance : START_BANK;
 world.roomsVersion = world.roomsVersion || 1;
 world.latestGameId = world.latestGameId || 0;
+
+// item drawings — DB is the source of truth, mirrored into the world snapshot
+world.itemArt = { ...loadItemArt(), ...(world.itemArt || {}) };
+
+// persons.json — a hand-editable roster. If present, it overrides names /
+// looks / roles / personality (positions & needs stay from the snapshot).
+try {
+  if (existsSync(PERSONS_PATH)) {
+    hydrateFromFile(world, JSON.parse(readFileSync(PERSONS_PATH, "utf8")), world.rng);
+    console.log(`[simyou] persons.json applied (${rosterOf(world).length} people)`);
+  }
+} catch (e) {
+  console.error("[simyou] persons.json read:", e.message);
+}
+writePersonsFile();
+regenRooms(true);
 
 persistRooms();
 persistMemories();
@@ -419,6 +464,12 @@ function finishDialogue(phase, r) {
     try { Q.dailyAdd.run(String(SEED), world.day, r.earned, 0); } catch { /* ignore */ }
   }
   if (r.game) commitGame(r.game);
+  if (r.drawings) {
+    for (const [oid, art] of Object.entries(r.drawings)) {
+      try { Q.artSet.run(String(SEED), oid, JSON.stringify(art), new Date().toISOString()); } catch { /* ignore */ }
+    }
+  }
+  if (r.peopleChanged) writePersonsFile();
   if (phase === "morning" && r.quote && r.quote.length > 3) setQuote(r.quote);
   if (r.dream) {
     try { Q.dreamSet.run(String(SEED), world.day, String(r.dream).slice(0, 220)); } catch { /* ignore */ }
@@ -532,7 +583,7 @@ function regenRooms(force) {
   for (const rid of ROOM_IDS) {
     const cur = world.roomDocs[rid];
     if (force || !cur || (cur.objects || []).join(",") !== (world.rooms[rid] || []).join(",")) {
-      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake);
+      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake, world.itemArt);
       bumped = true;
     }
   }
@@ -843,6 +894,11 @@ function viewSnapshot() {
       : null,
     household: world.household || null,
     togetherness: Math.round(world.togetherness ?? 50),
+    extras: (world.extras || []).map((r) => ({
+      name: r.name, gender: r.gender, role: r.role || "", look: r.look,
+      room: r.room, x: r.x, y: r.y, tx: r.tx, ty: r.ty, facing: r.facing,
+      transit: r.transit, moving: r.moving, action: r.action, lastThought: r.lastThought,
+    })),
     windowArt: world.windowArt || null,
     keepsake: world.keepsake || null,
     finances: world.finances

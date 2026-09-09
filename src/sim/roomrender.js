@@ -7,6 +7,7 @@ import { OBJECTS } from "./objects.js";
 import { plantGlyph, plantWater } from "./plants.js";
 import { wearGlyph, wearPct } from "./wear.js";
 import { windowArtCss } from "./windowart.js";
+import { artToSvg } from "./itemart.js";
 
 // slot coordinates in the 512x448 playfield (floor rows + a wall row)
 const SLOTS = [
@@ -47,15 +48,16 @@ function esc(s) {
   return String(s).replace(/[<>"&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", '"': "&quot;", "&": "&amp;" })[c]);
 }
 
-export function objHtml(id, slot, roomId, plants, wear, names) {
+export function objHtml(id, slot, roomId, plants, wear, names, art) {
   const o = OBJECTS[id];
   if (!o) return "";
   const p = SLOTS[slot % SLOTS.length];
   const x = ((p.x / 512) * 100).toFixed(2);
   const y = ((p.y / 448) * 100).toFixed(2);
-  const glyph = wearGlyph(wear, roomId, id, plantGlyph(plants, roomId, id, o.glyph));
   const nick = names && typeof names[id] === "string" ? names[id] : "";
-  return `<span class="obj" data-obj="${id}" title="${esc(nick ? `${nick} — ${o.label}` : o.label)}" style="left:${x}%;top:${y}%">${glyph}</span>`;
+  const drawn = art && art[id] ? artToSvg(art[id]) : "";
+  const inner = drawn || wearGlyph(wear, roomId, id, plantGlyph(plants, roomId, id, o.glyph));
+  return `<span class="obj${drawn ? " obj-drawn" : ""}" data-obj="${id}" title="${esc(nick ? `${nick} — ${o.label}` : o.label)}" style="left:${x}%;top:${y}%">${inner}</span>`;
 }
 
 export const WALL_PATTERNS = ["plain", "stripes", "dots", "grid", "checker", "diagonal"];
@@ -103,7 +105,7 @@ function winFurn(art) {
   return `<div class="furn win" style="left:28%;width:44%;top:14%;height:34%;background:${bg}"></div>`;
 }
 
-export function roomHtml(roomId, objects, style, plants, wear, windowArt) {
+export function roomHtml(roomId, objects, style, plants, wear, windowArt, art) {
   const st = roomStyle(roomId, style);
   const p = st.palette;
   return (
@@ -111,14 +113,14 @@ export function roomHtml(roomId, objects, style, plants, wear, windowArt) {
     `<div class="wall" data-pattern="${st.pattern}"></div><div class="floor" data-pattern="${st.floor}"></div>` +
     lightLayer(st.light) +
     (roomId === "window" ? winFurn(windowArt) : FURNITURE[roomId] || "") +
-    objects.map((id, i) => objHtml(id, i, roomId, plants, wear, st.names)).join("") +
+    objects.map((id, i) => objHtml(id, i, roomId, plants, wear, st.names, art)).join("") +
     (st.sign ? `<span class="room-sign">${esc(st.sign)}</span>` : "") +
     `<span class="room-tag">${esc(st.name)}</span>` +
     "</div>"
   );
 }
 
-export function objectsMeta(roomId, objects, objDay, plants, wear, names, keepsake) {
+export function objectsMeta(roomId, objects, objDay, plants, wear, names, keepsake, art) {
   return objects
     .map((id, i) => {
       const o = OBJECTS[id];
@@ -137,12 +139,13 @@ export function objectsMeta(roomId, objects, objDay, plants, wear, names, keepsa
         day: (objDay && objDay[`${roomId}:${id}`]) || 1,
         water: plantWater(plants, roomId, id),
         condition: wearPct(wear, roomId, id),
+        drawn: !!(art && art[id]),
       };
     })
     .filter(Boolean);
 }
 
-export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, windowArt, keepsake) {
+export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, windowArt, keepsake, art) {
   const st = roomStyle(roomId, style);
   return {
     room: roomId,
@@ -155,8 +158,8 @@ export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, wind
     light: st.light,
     names: st.names,
     objects: [...objects],
-    meta: objectsMeta(roomId, objects, objDay, plants, wear, st.names, keepsake),
-    html: roomHtml(roomId, objects, style, plants, wear, windowArt),
+    meta: objectsMeta(roomId, objects, objDay, plants, wear, st.names, keepsake, art),
+    html: roomHtml(roomId, objects, style, plants, wear, windowArt, art),
     updated: new Date().toISOString(),
   };
 }
@@ -164,6 +167,6 @@ export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, wind
 export function initDocs(world) {
   world.roomDocs = {};
   for (const rid of Object.keys(world.rooms)) {
-    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake);
+    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake, world.itemArt);
   }
 }

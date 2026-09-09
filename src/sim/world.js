@@ -18,6 +18,7 @@ import { freshRhythm, stepRhythm, rollRhythm, rhythmMods } from "./rhythm.js";
 import { freshPet, stepPet, petBond } from "./pet.js";
 import { makeCouple } from "./people.js";
 import { makePartner, stepPartner, stepTogetherness } from "./partner.js";
+import { stepResident } from "./persons.js";
 import { freshFinances, chargeDay, economyMods } from "./economy.js";
 import { ensureWear, tickWear, conditionFactor, tinkerFix } from "./wear.js";
 import { freshPsyche, rollPsyche, psycheMods } from "./psyche.js";
@@ -66,6 +67,7 @@ export function createWorld(seed) {
       marriedDay: 1,
     },
     togetherness: 55,
+    extras: [], // 0-8 additional residents (people beyond the couple)
     memory: freshMemory(),
     mood: freshMood(),
     weather: freshWeather(rng),
@@ -181,6 +183,7 @@ export function tick(w, dt) {
   stepPet(w, dt, w.rng);
   stepPartner(w, dt, w.rng);
   stepTogetherness(w, dt);
+  if (w.extras && w.extras.length) for (const r of w.extras) stepResident(w, r, dt, w.rng);
   tickWear(w, dt, DAY_LENGTH);
   if (w.isNight && w.agent.action && w.agent.action.id === "sleep") w.slept = true;
 

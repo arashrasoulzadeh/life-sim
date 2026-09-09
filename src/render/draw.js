@@ -47,8 +47,10 @@ export function render(ctx, w, ui) {
     }
     if (w.pet && w.pet.room === view && !inHall) drawPet(ctx, w);
     if (w.partner && w.partner.room === view && w.partner.transit <= 0 && !inHall) drawAgent(ctx, w, w.partner);
+    for (const r of w.extras || []) if (r.room === view && r.transit <= 0 && !inHall) drawAgent(ctx, w, r);
     if (inHall || (w.agent.room === view && w.agent.transit <= 0)) drawAgent(ctx, w);
     if (w.partner && w.partner.transit > 0 && w.partner.room === view) drawAgent(ctx, w, w.partner);
+    for (const r of w.extras || []) if (r.transit > 0 && r.room === view) drawAgent(ctx, w, r);
     drawNightTint(ctx, w);
     drawSeasonTint(ctx, w);
     if (w.era.tint) {
@@ -118,6 +120,7 @@ function agentCellCenterX(w) {
 function drawGridAgent(ctx, w) {
   gridPerson(ctx, w, w.agent, true);
   if (w.partner) gridPerson(ctx, w, w.partner, false);
+  for (const r of w.extras || []) gridPerson(ctx, w, r, false);
 }
 
 function gridPerson(ctx, w, agent, highlight) {

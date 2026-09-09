@@ -18,6 +18,8 @@ import { psycheLine, isConflictToday, resolveLean } from "./psyche.js";
 import { canWrite, cleanWriting, writingPrompt } from "./writing.js";
 import { isBroken, repair, repairCost, wearPct } from "./wear.js";
 import { WALL_PATTERNS, FLOOR_PATTERNS, roomStyle } from "./roomrender.js";
+import { applyPeopleOps, allPeople, MAX_PEOPLE } from "./persons.js";
+import { cleanArt, ART_HELP } from "./itemart.js";
 import { ART_STYLES, cleanWindowArt, windowArtLabel } from "./windowart.js";
 
 const VOTE_LABELS = { work: "work hard", rest: "rest & recover", social: "reach out to others", learn: "learn something", tend: "tend the home" };
@@ -93,6 +95,14 @@ export function buildPrompt(w, phase, ctx = {}) {
   const spouseName = w.partner?.name || hh.spouse?.name || "your spouse";
   const homeLine = `You are ${hh.you?.name || "you"} ${hh.surname || ""}. You live here with ${spouseName}, your ${spouseWord(w.partner?.gender || hh.spouse?.gender)}. Togetherness ${Math.round(w.togetherness ?? 50)}% (they're in the ${w.partner?.room || "flat"} now). Speak as "we" where it fits.`;
   const moneyLine = `Money: ${financeLine(w)}.`;
+  const roster = allPeople(w);
+  const peopleLine = `Who lives here (${roster.length}/${MAX_PEOPLE}): ` +
+    roster.map((p, i) => `${i}:${p.name}${p.role ? ` (${p.role})` : i === 0 ? " (you)" : i === 1 ? " (spouse)" : ""}`).join(", ");
+  const noArt = [];
+  for (const ids of Object.values(w.rooms || {})) for (const id of ids) if (OBJECTS[id] && !(w.itemArt && w.itemArt[id])) noArt.push(id);
+  const drawLine = noArt.length
+    ? `Things you own that still show as plain emoji — draw a few tonight if you like (fill "drawings"): ${noArt.slice(0, 6).map((id) => `${id} (${OBJECTS[id].label})`).join(", ")}`
+    : "";
   const conflictLine = psycheLine(w);
   const worn = [];
   for (const [room, ids] of Object.entries(w.rooms || {})) {
@@ -131,6 +141,8 @@ export function buildPrompt(w, phase, ctx = {}) {
         `     The CURRENT name / colours / patterns of every room are listed in the "Rooms:" block below — only include a field when you actually want to change it from what's there. or null,`,
         `  "windowArt": {"style": one of ${ART_STYLES.join("|")}, "hue": 0-360, "hue2": 0-360, "density": 0.2-1} or null  (generative art for the window),`,
         `  "keepsake": an object id you own and will never sell, or "" to clear, or null,`,
+        `  "people": [ {"op":"add","name"?,"gender":"f|m|n","role"?} | {"op":"rename","who":name-or-index,"name"} | {"op":"restyle","who","look":{"skin"?,"shirt"?,"hair"?,"long"?}} | {"op":"role","who","role"} | {"op":"remove","who"} ]  up to ${MAX_PEOPLE} people total, you + spouse are permanent. or null,`,
+        `  "drawings": {"<objectId you own>": [shapes]} or null  — your own picture of a thing, replaces its emoji from now on. ${ART_HELP}`,
         '  "newMemory": {...} or null',
         '}',
         "MARKETPLACE — buy by id, and it appears in the object's listed room:",
@@ -169,6 +181,8 @@ export function buildPrompt(w, phase, ctx = {}) {
     `Mood ${w.mood.valence.toFixed(2)}. Reputation ${Math.round(w.reputation)}/100. Weather ${w.weather.sky}. Season: ${w.outside?.season || "spring"} (neighbour lately: ${w.outside?.neighbour || "—"}).`,
     `Skills: writing ${Math.round(sk.writing || 0)}, coding ${Math.round(sk.coding || 0)}, tinkering ${Math.round(sk.tinkering || 0)}, talking ${Math.round(sk.talking || 0)}.`,
     homeLine,
+    peopleLine,
+    evening ? drawLine : "",
     goalLine,
     rhythmLine,
     petLine,
@@ -450,6 +464,29 @@ export function applyEvening(w, resp) {
   if (art) {
     w.windowArt = { ...art, day: w.day };
     out.changes.push(`🪟 hung ${windowArtLabel(art)} in the window`);
+  }
+
+  const peopleNotes = applyPeopleOps(w, resp?.people, w.rng);
+  if (peopleNotes.length) {
+    out.changes.push(...peopleNotes.map((n) => `👥 ${n}`));
+    out.peopleChanged = true;
+  }
+
+  if (resp?.drawings && typeof resp.drawings === "object") {
+    w.itemArt = w.itemArt || {};
+    out.drawings = {};
+    let drew = 0;
+    for (const [oid, raw] of Object.entries(resp.drawings).slice(0, 4)) {
+      if (!OBJECTS[oid]) continue;
+      const owned = Object.values(w.rooms).some((ids) => ids.includes(oid));
+      if (!owned) continue;
+      const art = cleanArt(raw);
+      if (!art) continue;
+      w.itemArt[oid] = art;
+      out.drawings[oid] = art;
+      drew++;
+    }
+    if (drew) out.changes.push(`✏️ drew ${drew} thing${drew > 1 ? "s" : ""}`);
   }
 
   if (typeof resp?.keepsake === "string") {
