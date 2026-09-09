@@ -11,7 +11,9 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/life-sim
 EnvironmentFile=/home/ubuntu/life-sim/.env
-ExecStart=/usr/bin/node /home/ubuntu/life-sim/server.mjs
+# `env node` finds node whether it's /usr/bin/node (apt/NodeSource) or
+# /usr/local/bin/node (tarball) — both are on systemd's default PATH
+ExecStart=/usr/bin/env node /home/ubuntu/life-sim/server.mjs
 Restart=always
 RestartSec=3
 

@@ -30,8 +30,14 @@ git push -u origin main
 ### 2. On the server — Node + clone
 
 ```bash
-node -v   # need >= 22.5 (built-in node:sqlite). If lower:
-# curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs
+node -v   # MUST be >= 22.5 — Node 20 has no node:sqlite at all
+
+# if lower, NodeSource:
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs
+# ...or if that's blocked, the official tarball:
+cd /tmp && curl -fLO https://nodejs.org/dist/v22.11.0/node-v22.11.0-linux-x64.tar.xz
+sudo tar -xJf node-v22.11.0-linux-x64.tar.xz -C /usr/local --strip-components=1
+sudo apt-get remove -y nodejs libnode72 2>/dev/null; hash -r; node -v
 
 cd ~
 git clone https://github.com/arashrasoulzadeh/life-sim.git
