@@ -74,12 +74,22 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-The container runs as a non-root user with a **read-only filesystem**, no
-capabilities, and `no-new-privileges`; only `/data` (a named volume, the DB) and
-`/tmp` are writable. `.env` and `sites.json` are mounted from the host, never
-baked in. nginx (step 5) proxies to `127.0.0.1:5173`.
+The container runs as **uid 10001**, read-only rootfs, no capabilities,
+`no-new-privileges`; only `/data` (the DB volume) and `/tmp` are writable.
+`.env` and `sites.json` are mounted from the host. nginx (step 5) proxies to
+`127.0.0.1:5173`.
 
 Update: `git pull && docker compose up -d --build`.
+
+**Migrating an existing life into the volume** (volume is `<dir>_simyou-data`):
+```bash
+docker compose up -d --build && docker compose stop
+docker run --rm --user root -v life-sim_simyou-data:/data -v "$PWD":/host:ro alpine \
+  sh -c 'cp /host/simyou.db* /data/ 2>/dev/null; chown -R 10001:10001 /data'
+docker compose start
+```
+The `chown 10001` is required — without it the container hits *"attempt to
+write a readonly database"*.
 
 ### 4b. Run it — systemd (no Docker)
 
