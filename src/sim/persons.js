@@ -31,15 +31,35 @@ function look(rng, gender) {
   };
 }
 
+// a per-day contribution to the household, roughly from what the role sounds like
+const INCOME_HINTS = [
+  [/lodger|tenant|renter|boarder|room.?mate/i, [12, 22]],
+  [/work|job|office|nurse|teach|engineer|clerk|shop|drive|cook|chef|dev|design|code/i, [22, 40]],
+  [/student|studies|intern|apprentic/i, [4, 12]],
+  [/artist|writer|musician|paint|freelanc/i, [8, 24]],
+  [/retire|pension/i, [14, 20]],
+  [/kid|child|baby|niece|nephew|cousin/i, [0, 0]],
+];
+function incomeFor(role, rng) {
+  for (const [re, [lo, hi]] of INCOME_HINTS) if (re.test(role || "")) return Math.round(rng.range(lo, hi));
+  return Math.round(rng.range(8, 20)); // a housemate who chips in
+}
+
 // build one resident agent
 export function makeResident(rng, opts = {}, taken = new Set()) {
   const gender = ["f", "m", "n"].includes(opts.gender) ? opts.gender : rng.pick(["f", "m", "n"]);
   const name = String(opts.name || "").trim().slice(0, 16) || pickName(rng, gender, taken);
   const a = makeAgent(rng, { name, gender, look: opts.look || look(rng, gender), offset: rng.range(-50, 50) });
   a.role = String(opts.role || "").replace(/[<>]/g, "").trim().slice(0, 40);
+  a.income = Number.isFinite(opts.income) ? Math.max(0, Math.min(60, Math.round(opts.income))) : incomeFor(a.role, rng);
   a.room = opts.room || "couch";
   a.resident = true;
   return a;
+}
+
+// total coins/day the residents bring in
+export function residentsIncome(w) {
+  return (w.extras || []).reduce((s, r) => s + (Number(r.income) || 0), 0);
 }
 
 const noop = () => {};
@@ -100,7 +120,7 @@ export function applyPeopleOps(w, ops, rng) {
       const taken = new Set(allPeople(w).map((p) => nameOf(p)));
       const r = makeResident(rng, op, taken);
       w.extras.push(r);
-      notes.push(`＋ ${r.name} moved in${r.role ? ` (${r.role})` : ""}`);
+      notes.push(`＋ ${r.name} moved in${r.role ? ` (${r.role})` : ""}${r.income ? ` · +${r.income}c/day` : ""}`);
     } else if (kind === "rename") {
       const p = findPerson(w, op.who);
       const nm = String(op.name || "").replace(/[<>\n]/g, "").trim().slice(0, 16);
@@ -123,7 +143,14 @@ export function applyPeopleOps(w, ops, rng) {
       const p = findPerson(w, op.who);
       if (p) {
         p.role = String(op.role || "").replace(/[<>]/g, "").trim().slice(0, 40);
-        notes.push(`${p.name}: ${p.role || "—"}`);
+        if (Number.isFinite(op.income)) p.income = Math.max(0, Math.min(60, Math.round(op.income)));
+        notes.push(`${p.name}: ${p.role || "—"}${p.income != null ? ` (+${p.income}c/day)` : ""}`);
+      }
+    } else if (kind === "income") {
+      const p = findPerson(w, op.who);
+      if (p && Number.isFinite(op.amount)) {
+        p.income = Math.max(0, Math.min(60, Math.round(op.amount)));
+        notes.push(`${p.name} now brings +${p.income}c/day`);
       }
     } else if (kind === "remove") {
       const p = findPerson(w, op.who);
@@ -144,6 +171,7 @@ export function personsFile(w) {
     name: p.name || "",
     gender: p.gender || "n",
     role: p.role || (slot === "you" ? "the assistant" : slot === "spouse" ? "spouse" : ""),
+    income: slot === "resident" ? Number(p.income) || 0 : undefined,
     look: p.look || {},
     personality: p.personality || {},
   });
@@ -164,6 +192,7 @@ export function hydrateFromFile(w, data, rng) {
     if (row.name) p.name = String(row.name).slice(0, 16);
     if (row.gender) p.gender = row.gender;
     if (row.role) p.role = String(row.role).slice(0, 40);
+    if (Number.isFinite(row.income)) p.income = Math.max(0, Math.min(60, Math.round(row.income)));
     if (row.look && typeof row.look === "object") p.look = { ...p.look, ...row.look };
     if (row.personality && typeof row.personality === "object") p.personality = { ...p.personality, ...row.personality };
   };

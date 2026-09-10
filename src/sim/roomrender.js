@@ -8,6 +8,7 @@ import { plantGlyph, plantWater } from "./plants.js";
 import { wearGlyph, wearPct } from "./wear.js";
 import { windowArtCss } from "./windowart.js";
 import { artToSvg } from "./itemart.js";
+import { paintingsHtml } from "./paintings.js";
 
 // slot coordinates in the 512x448 playfield (floor rows + a wall row)
 const SLOTS = [
@@ -105,7 +106,7 @@ function winFurn(art) {
   return `<div class="furn win" style="left:28%;width:44%;top:14%;height:34%;background:${bg}"></div>`;
 }
 
-export function roomHtml(roomId, objects, style, plants, wear, windowArt, art) {
+export function roomHtml(roomId, objects, style, plants, wear, windowArt, art, couchArt) {
   const st = roomStyle(roomId, style);
   const p = st.palette;
   return (
@@ -113,6 +114,7 @@ export function roomHtml(roomId, objects, style, plants, wear, windowArt, art) {
     `<div class="wall" data-pattern="${st.pattern}"></div><div class="floor" data-pattern="${st.floor}"></div>` +
     lightLayer(st.light) +
     (roomId === "window" ? winFurn(windowArt) : FURNITURE[roomId] || "") +
+    (roomId === "couch" ? paintingsHtml(couchArt) : "") +
     objects.map((id, i) => objHtml(id, i, roomId, plants, wear, st.names, art)).join("") +
     (st.sign ? `<span class="room-sign">${esc(st.sign)}</span>` : "") +
     `<span class="room-tag">${esc(st.name)}</span>` +
@@ -145,7 +147,7 @@ export function objectsMeta(roomId, objects, objDay, plants, wear, names, keepsa
     .filter(Boolean);
 }
 
-export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, windowArt, keepsake, art) {
+export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, windowArt, keepsake, art, couchArt) {
   const st = roomStyle(roomId, style);
   return {
     room: roomId,
@@ -159,7 +161,7 @@ export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, wind
     names: st.names,
     objects: [...objects],
     meta: objectsMeta(roomId, objects, objDay, plants, wear, st.names, keepsake, art),
-    html: roomHtml(roomId, objects, style, plants, wear, windowArt, art),
+    html: roomHtml(roomId, objects, style, plants, wear, windowArt, art, couchArt),
     updated: new Date().toISOString(),
   };
 }
@@ -167,6 +169,6 @@ export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, wind
 export function initDocs(world) {
   world.roomDocs = {};
   for (const rid of Object.keys(world.rooms)) {
-    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake, world.itemArt);
+    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake, world.itemArt, world.couchArt);
   }
 }

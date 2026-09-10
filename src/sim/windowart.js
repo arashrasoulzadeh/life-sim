@@ -1,7 +1,7 @@
 // Generative art the AI hangs in the window. It never writes markup — it picks
 // a style and a few numbers from a closed vocabulary, and this builds the layers.
 
-export const ART_STYLES = ["bands", "rings", "scatter", "hills", "panes", "aurora"];
+export const ART_STYLES = ["bands", "rings", "scatter", "hills", "panes", "aurora", "waves", "city", "forest", "nebula", "sunburst"];
 
 export function cleanWindowArt(raw) {
   if (!raw || typeof raw !== "object") return null;
@@ -57,6 +57,63 @@ export function windowArtCss(art) {
     }
     case "aurora":
       return `linear-gradient(115deg, ${dk} 0 20%, ${a} 35%, ${dk} 50%, ${b} 65%, ${dk} 80% 100%)`;
+    case "waves": {
+      const layers = [];
+      const rows = Math.max(3, Math.round(3 + art.density * 5));
+      for (let i = 0; i < rows; i++) {
+        const yy = 40 + (i / rows) * 60;
+        const c = i % 2 ? a : b;
+        layers.push(`radial-gradient(140% 40% at ${(i * 37) % 100}% ${yy}%, ${c} 0 30%, transparent 32%)`);
+      }
+      layers.push(`linear-gradient(${dk}, hsl(${art.hue2} 45% 20%))`);
+      return layers.join(", ");
+    }
+    case "city": {
+      const r = rng(art.hue * 3 + art.hue2 + 9);
+      const cols = Math.max(5, Math.round(6 + art.density * 8));
+      const w = (100 / cols).toFixed(2);
+      const towers = [];
+      for (let i = 0; i < cols; i++) {
+        const hgt = (30 + r() * 55).toFixed(1);
+        towers.push(`linear-gradient(to top, ${r() > 0.5 ? a : b} 0 ${hgt}%, transparent ${hgt}%) ${(i * (100 / cols)).toFixed(2)}% 100% / ${w}% 100% no-repeat`);
+      }
+      towers.push(`linear-gradient(hsl(${art.hue} 40% 18%), ${dk})`);
+      return towers.join(", ");
+    }
+    case "forest": {
+      const r = rng(art.hue2 + 21);
+      const trees = [];
+      const n = Math.max(4, Math.round(5 + art.density * 8));
+      for (let i = 0; i < n; i++) {
+        const x = (r() * 100).toFixed(1);
+        const sz = (10 + r() * 16).toFixed(1);
+        trees.push(`radial-gradient(${sz}% ${(+sz * 1.6).toFixed(1)}% at ${x}% ${(70 + r() * 25).toFixed(1)}%, hsl(${art.hue} 45% ${(22 + r() * 18) | 0}%) 0 60%, transparent 62%)`);
+      }
+      trees.push(`linear-gradient(hsl(${art.hue2} 40% 22%) 0 55%, hsl(${art.hue} 35% 14%) 55% 100%)`);
+      return trees.join(", ");
+    }
+    case "nebula": {
+      const r = rng(art.hue + art.hue2 * 2 + 5);
+      const clouds = [];
+      for (let i = 0; i < 5; i++) {
+        clouds.push(`radial-gradient(${(30 + r() * 40).toFixed(0)}% ${(25 + r() * 35).toFixed(0)}% at ${(r() * 100).toFixed(0)}% ${(r() * 100).toFixed(0)}%, ${r() > 0.5 ? a : b} 0 20%, transparent 60%)`);
+      }
+      for (let i = 0; i < Math.round(8 + art.density * 20); i++) {
+        clouds.push(`radial-gradient(circle at ${(r() * 100).toFixed(1)}% ${(r() * 100).toFixed(1)}%, #fff 0 0.6px, transparent 1px)`);
+      }
+      clouds.push("#04060c");
+      return clouds.join(", ");
+    }
+    case "sunburst": {
+      const stops = [];
+      const rays = Math.max(8, Math.round(8 + art.density * 16));
+      for (let i = 0; i < rays; i++) {
+        const from = ((i / rays) * 360).toFixed(1);
+        const to = (((i + 0.5) / rays) * 360).toFixed(1);
+        stops.push(`${i % 2 ? a : dk} ${from}deg ${to}deg`);
+      }
+      return `radial-gradient(circle at 50% 46%, hsl(${art.hue} 80% 60%) 0 6%, transparent 8%), conic-gradient(from 0deg at 50% 46%, ${stops.join(", ")})`;
+    }
     default:
       return dk;
   }

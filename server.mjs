@@ -25,6 +25,7 @@ import { canWrite, weaveWriting } from "./src/sim/writing.js";
 import { financeLine } from "./src/sim/economy.js";
 import { personsFile, hydrateFromFile, allPeople as rosterOf } from "./src/sim/persons.js";
 import { cleanArt } from "./src/sim/itemart.js";
+import { rotatePaintings } from "./src/sim/paintings.js";
 import { ROOM_IDS } from "./src/sim/rooms.js";
 import { describeSpec, validateSpec, nudgeSpec, randomSpec } from "./src/game/kernels.js";
 import { Rng } from "./src/engine/rng.js";
@@ -334,6 +335,7 @@ function restore(seed, json) {
   if (!("keepsake" in w)) w.keepsake = null;
   if (!Array.isArray(w.extras)) w.extras = [];
   if (!w.itemArt || typeof w.itemArt !== "object") w.itemArt = {};
+  if (!Array.isArray(w.couchArt)) w.couchArt = [];
   if (!w.agent.skills) w.agent.skills = { writing: 4, coding: 4, tinkering: 4, talking: 4 };
   if (!w.outside) w.outside = { season: "spring", neighbour: "the courier who always waves", neighbourSeenDay: 0 };
   if (!w.plants) w.plants = {};
@@ -380,6 +382,7 @@ world.latestGameId = world.latestGameId || 0;
 
 // item drawings — DB is the source of truth, mirrored into the world snapshot
 world.itemArt = { ...loadItemArt(), ...(world.itemArt || {}) };
+if (!Array.isArray(world.couchArt) || !world.couchArt.length) rotatePaintings(world, world.rng);
 
 // persons.json — a hand-editable roster. If present, it overrides names /
 // looks / roles / personality (positions & needs stay from the snapshot).
@@ -583,7 +586,7 @@ function regenRooms(force) {
   for (const rid of ROOM_IDS) {
     const cur = world.roomDocs[rid];
     if (force || !cur || (cur.objects || []).join(",") !== (world.rooms[rid] || []).join(",")) {
-      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake, world.itemArt);
+      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake, world.itemArt, world.couchArt);
       bumped = true;
     }
   }
@@ -895,7 +898,7 @@ function viewSnapshot() {
     household: world.household || null,
     togetherness: Math.round(world.togetherness ?? 50),
     extras: (world.extras || []).map((r) => ({
-      name: r.name, gender: r.gender, role: r.role || "", look: r.look,
+      name: r.name, gender: r.gender, role: r.role || "", income: r.income || 0, look: r.look,
       room: r.room, x: r.x, y: r.y, tx: r.tx, ty: r.ty, facing: r.facing,
       transit: r.transit, moving: r.moving, action: r.action, lastThought: r.lastThought,
     })),

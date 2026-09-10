@@ -125,6 +125,42 @@ export const KERNELS = {
       hue: { type: "int", min: 0, max: 360, def: 90 },
     },
   },
+  paint: {
+    desc: "drag to paint glowing trails that slowly fade",
+    params: {
+      size: { type: "num", min: 1, max: 12, def: 4 },
+      fade: { type: "num", min: 0.01, max: 0.2, def: 0.04 },
+      hue: { type: "int", min: 0, max: 360, def: 300 },
+      rainbow: { type: "bool", def: true },
+    },
+  },
+  breakout: {
+    desc: "a paddle (follows your pointer) knocking out a wall of bricks",
+    params: {
+      rows: { type: "int", min: 2, max: 8, def: 5 },
+      speed: { type: "num", min: 0.5, max: 3, def: 1.2 },
+      paddle: { type: "int", min: 20, max: 70, def: 42 },
+      hue: { type: "int", min: 0, max: 360, def: 200 },
+    },
+  },
+  catch: {
+    desc: "move the basket with your pointer to catch falling drops",
+    params: {
+      rate: { type: "num", min: 0.3, max: 3, def: 1 },
+      speed: { type: "num", min: 0.4, max: 2.5, def: 1 },
+      basket: { type: "int", min: 14, max: 50, def: 28 },
+      hue: { type: "int", min: 0, max: 360, def: 40 },
+    },
+  },
+  gravitywell: {
+    desc: "particles fall toward wherever you hold the pointer",
+    params: {
+      count: { type: "int", min: 30, max: 300, def: 120 },
+      pull: { type: "num", min: 0.2, max: 2.5, def: 1 },
+      hue: { type: "int", min: 0, max: 360, def: 260 },
+      trail: { type: "bool", def: true },
+    },
+  },
 };
 
 // nudge a spec's numbers a little (the AI fiddling with its game)

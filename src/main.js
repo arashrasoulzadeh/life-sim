@@ -354,7 +354,7 @@ for (const id of Object.keys(dlgs)) {
 
 const esc = (s) => String(s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c]);
 const KIND_LABEL = {
-  reward: "daily reward", view: "viewers", sale: "sold something",
+  reward: "daily reward", view: "viewers", sale: "sold something", housemates: "housemates",
   upkeep: "upkeep", rent: "rent", spend: "bought something", init: "opening balance",
 };
 function signCell(n) {

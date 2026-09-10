@@ -20,6 +20,7 @@ import { isBroken, repair, repairCost, wearPct } from "./wear.js";
 import { WALL_PATTERNS, FLOOR_PATTERNS, roomStyle } from "./roomrender.js";
 import { applyPeopleOps, allPeople, MAX_PEOPLE } from "./persons.js";
 import { cleanArt, ART_HELP } from "./itemart.js";
+import { setPaintings, MAX_PAINTINGS } from "./paintings.js";
 import { ART_STYLES, cleanWindowArt, windowArtLabel } from "./windowart.js";
 
 const VOTE_LABELS = { work: "work hard", rest: "rest & recover", social: "reach out to others", learn: "learn something", tend: "tend the home" };
@@ -97,7 +98,7 @@ export function buildPrompt(w, phase, ctx = {}) {
   const moneyLine = `Money: ${financeLine(w)}.`;
   const roster = allPeople(w);
   const peopleLine = `Who lives here (${roster.length}/${MAX_PEOPLE}): ` +
-    roster.map((p, i) => `${i}:${p.name}${p.role ? ` (${p.role})` : i === 0 ? " (you)" : i === 1 ? " (spouse)" : ""}`).join(", ");
+    roster.map((p, i) => `${i}:${p.name}${p.role ? ` (${p.role})` : i === 0 ? " (you)" : i === 1 ? " (spouse)" : ""}${p.income ? ` +${p.income}c/day` : ""}`).join(", ");
   const noArt = [];
   for (const ids of Object.values(w.rooms || {})) for (const id of ids) if (OBJECTS[id] && !(w.itemArt && w.itemArt[id])) noArt.push(id);
   const drawLine = noArt.length
@@ -141,8 +142,9 @@ export function buildPrompt(w, phase, ctx = {}) {
         `     The CURRENT name / colours / patterns of every room are listed in the "Rooms:" block below — only include a field when you actually want to change it from what's there. or null,`,
         `  "windowArt": {"style": one of ${ART_STYLES.join("|")}, "hue": 0-360, "hue2": 0-360, "density": 0.2-1} or null  (generative art for the window),`,
         `  "keepsake": an object id you own and will never sell, or "" to clear, or null,`,
-        `  "people": [ {"op":"add","name"?,"gender":"f|m|n","role"?} | {"op":"rename","who":name-or-index,"name"} | {"op":"restyle","who","look":{"skin"?,"shirt"?,"hair"?,"long"?}} | {"op":"role","who","role"} | {"op":"remove","who"} ]  up to ${MAX_PEOPLE} people total, you + spouse are permanent. or null,`,
+        `  "people": [ {"op":"add","name"?,"gender":"f|m|n","role"?,"income"?} | {"op":"rename","who":name-or-index,"name"} | {"op":"restyle","who","look":{"skin"?,"shirt"?,"hair"?,"long"?}} | {"op":"role","who","role","income"?} | {"op":"income","who","amount"} | {"op":"remove","who"} ]  up to ${MAX_PEOPLE} people total; you + spouse are permanent; each resident contributes "income" coins/day (0-60, guessed from their role if omitted). or null,`,
         `  "drawings": {"<objectId you own>": [shapes]} or null  — your own picture of a thing, replaces its emoji from now on. ${ART_HELP}`,
+        `  "paintings": [ [shapes], ... ] or null  — up to ${MAX_PAINTINGS} abstract pieces to hang above the couch (replaces what's there; otherwise a fresh one appears on its own each day),`,
         '  "newMemory": {...} or null',
         '}',
         "MARKETPLACE — buy by id, and it appears in the object's listed room:",
@@ -487,6 +489,11 @@ export function applyEvening(w, resp) {
       drew++;
     }
     if (drew) out.changes.push(`✏️ drew ${drew} thing${drew > 1 ? "s" : ""}`);
+  }
+
+  if (resp?.paintings) {
+    const n = setPaintings(w, resp.paintings);
+    if (n) out.changes.push(`🖼 hung ${n} painting${n > 1 ? "s" : ""} over the couch`);
   }
 
   if (typeof resp?.keepsake === "string") {

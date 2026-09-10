@@ -14,6 +14,7 @@ import { freshOutside, stepOutside, windowEventPool } from "./outside.js";
 import { tickPlants, plantsNewDay, thirstyIn, water as waterPlant } from "./plants.js";
 import { weaveDream } from "./dreams.js";
 import { autoWindowArt } from "./windowart.js";
+import { rotatePaintings } from "./paintings.js";
 import { freshRhythm, stepRhythm, rollRhythm, rhythmMods } from "./rhythm.js";
 import { freshPet, stepPet, petBond } from "./pet.js";
 import { makeCouple } from "./people.js";
@@ -88,6 +89,7 @@ export function createWorld(seed) {
     roomOrder: [...ROOM_IDS], // grid order; the AI may reorder it
     roomStyle: {}, // { [id]: { name?, palette?:{wall,floor,accent}, pattern? } } — AI overrides, validated
     windowArt: null, // { style, hue, hue2, density } — generative art the AI hangs in the window
+    couchArt: [], // up to 3 framed paintings above the couch, refreshed daily
     keepsake: null, // "room:id" — one object it will never sell
     objDay: Object.fromEntries(
       ROOM_IDS.flatMap((r) => (DEFAULT_OBJECTS[r] || []).map((id) => [`${r}:${id}`, 1])),
@@ -334,6 +336,9 @@ function onNewDay(w) {
     w.windowArt = { ...autoWindowArt(w.rng), day: w.day };
     w.fx.push("event");
   }
+
+  // a fresh painting goes up above the couch each day (keep the last 3)
+  rotatePaintings(w, w.rng);
   ensureWear(w);
   w._dayCharges = chargeDay(w); // rent + upkeep — the server writes these to the ledger
   w.yesterday = w.tally;

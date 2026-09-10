@@ -74,8 +74,12 @@
     spec = null;
   }
 
-  // --- visitor input: keys / taps only nudge numbers, never run code ---
-  var input = { dir: null, dirAt: 0, taps: [], burst: 0 };
+  // --- visitor input: keys / pointer only nudge numbers, never run code ---
+  var input = { dir: null, dirAt: 0, taps: [], burst: 0, px: -1, py: -1, down: false, downAt: 0, drag: [] };
+  function toCanvas(e) {
+    var r = canvas.getBoundingClientRect();
+    return { x: ((e.clientX - r.left) / (r.width || W)) * W, y: ((e.clientY - r.top) / (r.height || H)) * H };
+  }
   try {
     window.addEventListener("keydown", function (e) {
       var map = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0] };
@@ -85,16 +89,37 @@
         input.dirAt = performance.now();
         e.preventDefault();
       }
+      if (e.key === " " || e.key === "Enter") input.burst = 1;
     });
     canvas.addEventListener("pointerdown", function (e) {
-      var r = canvas.getBoundingClientRect();
-      var rw = r.width || W;
-      var rh = r.height || H;
-      input.taps.push({ x: ((e.clientX - r.left) / rw) * W, y: ((e.clientY - r.top) / rh) * H });
+      var p = toCanvas(e);
+      input.taps.push(p);
       input.burst = 1;
+      input.down = true;
+      input.downAt = performance.now();
+      input.px = p.x;
+      input.py = p.y;
+      input.drag = [p];
       if (input.taps.length > 12) input.taps.shift();
     });
+    canvas.addEventListener("pointermove", function (e) {
+      var p = toCanvas(e);
+      input.px = p.x;
+      input.py = p.y;
+      if (input.down) {
+        input.drag.push(p);
+        if (input.drag.length > 240) input.drag.shift();
+      }
+    });
+    var up = function () { input.down = false; };
+    canvas.addEventListener("pointerup", up);
+    canvas.addEventListener("pointerleave", up);
   } catch (e) {}
+  function takeDrag() {
+    var d = input.drag;
+    input.drag = input.down && d.length ? [d[d.length - 1]] : [];
+    return d;
+  }
   function takeTaps() {
     var t = input.taps;
     input.taps = [];
@@ -551,6 +576,148 @@
       ctx.fillRect(W - 12, r - pad / 2, 4, pad);
       ctx.fillStyle = "hsl(" + (hue + 40) + " 80% 65%)";
       ctx.fillRect(ball.x - 2, ball.y - 2, 4, 4);
+    });
+  };
+
+  KERNEL_FN.paint = function (p) {
+    var size = num(p.size, 4, 1, 12);
+    var fade = num(p.fade, 0.04, 0.01, 0.2);
+    var hue = num(p.hue, 300, 0, 360);
+    var rainbow = p.rainbow !== false;
+    var h = hue;
+    loop(function () {
+      ctx.fillStyle = "rgba(5,7,10," + fade + ")";
+      ctx.fillRect(0, 0, W, H);
+      var d = takeDrag();
+      if (input.down && d.length < 2 && input.px >= 0) d = [{ x: input.px, y: input.py }];
+      for (var i = 0; i < d.length; i++) {
+        h = rainbow ? (h + 2) % 360 : hue;
+        ctx.fillStyle = "hsl(" + h + " 85% 62%)";
+        ctx.beginPath();
+        ctx.arc(d[i].x, d[i].y, size, 0, 6.29);
+        ctx.fill();
+      }
+      if (!input.down && input.px < 0) {
+        ctx.fillStyle = "#5f6675";
+        ctx.font = "11px ui-monospace, monospace";
+        ctx.fillText("drag to paint", 12, 20);
+      }
+    });
+  };
+
+  KERNEL_FN.breakout = function (p) {
+    var rows = intn(p.rows, 5, 2, 8);
+    var speed = num(p.speed, 1.2, 0.5, 3);
+    var padW = intn(p.paddle, 42, 20, 70);
+    var hue = num(p.hue, 200, 0, 360);
+    var cols = 8;
+    var bricks = [];
+    for (var r = 0; r < rows; r++) for (var c = 0; c < cols; c++) bricks.push({ c: c, r: r, on: true });
+    var px = W / 2;
+    var ball = { x: W / 2, y: H * 0.6, vx: 2 * speed, vy: -2.4 * speed };
+    loop(function () {
+      px += ((input.px >= 0 ? input.px : W / 2) - px) * 0.25;
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+      if (ball.x < 4 || ball.x > W - 4) ball.vx *= -1;
+      if (ball.y < 4) ball.vy *= -1;
+      var bw = W / cols, bh = (H * 0.35) / rows;
+      for (var i = 0; i < bricks.length; i++) {
+        var b = bricks[i];
+        if (!b.on) continue;
+        var bx = b.c * bw, by = 20 + b.r * bh;
+        if (ball.x > bx && ball.x < bx + bw && ball.y > by && ball.y < by + bh) {
+          b.on = false;
+          ball.vy *= -1;
+        }
+      }
+      var pyv = H - 16;
+      if (ball.y > pyv - 4 && ball.y < pyv + 6 && Math.abs(ball.x - px) < padW / 2 && ball.vy > 0) {
+        ball.vy = -Math.abs(ball.vy);
+        ball.vx += (ball.x - px) * 0.08;
+      }
+      if (ball.y > H + 10) { ball.x = W / 2; ball.y = H * 0.6; ball.vx = 2 * speed; ball.vy = -2.4 * speed; }
+      if (!bricks.some(function (x) { return x.on; })) for (var k = 0; k < bricks.length; k++) bricks[k].on = true;
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      for (var j = 0; j < bricks.length; j++) {
+        if (!bricks[j].on) continue;
+        ctx.fillStyle = "hsl(" + (hue + bricks[j].r * 18) + " 65% 58%)";
+        ctx.fillRect(bricks[j].c * bw + 1, 20 + bricks[j].r * bh + 1, bw - 2, bh - 2);
+      }
+      ctx.fillStyle = "hsl(" + hue + " 60% 65%)";
+      ctx.fillRect(px - padW / 2, pyv, padW, 4);
+      ctx.fillStyle = "hsl(" + (hue + 40) + " 85% 68%)";
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, 3.5, 0, 6.29);
+      ctx.fill();
+    });
+  };
+
+  KERNEL_FN.catch = function (p) {
+    var rate = num(p.rate, 1, 0.3, 3);
+    var speed = num(p.speed, 1, 0.4, 2.5);
+    var bw = intn(p.basket, 28, 14, 50);
+    var hue = num(p.hue, 40, 0, 360);
+    var drops = [];
+    var bx = W / 2, score = 0, acc = 0;
+    loop(function (dt) {
+      bx += ((input.px >= 0 ? input.px : W / 2) - bx) * 0.3;
+      acc += dt * rate;
+      if (acc > 600) { acc = 0; drops.push({ x: 10 + Math.random() * (W - 20), y: -6, v: (1 + Math.random()) * speed }); }
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      var by = H - 12;
+      for (var i = drops.length - 1; i >= 0; i--) {
+        var d = drops[i];
+        d.y += d.v;
+        if (d.y > by - 2 && d.y < by + 6 && Math.abs(d.x - bx) < bw / 2) { drops.splice(i, 1); score++; continue; }
+        if (d.y > H + 10) { drops.splice(i, 1); score = Math.max(0, score - 1); continue; }
+        ctx.fillStyle = "hsl(" + (hue + 180) + " 70% 62%)";
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, 3, 0, 6.29);
+        ctx.fill();
+      }
+      ctx.strokeStyle = "hsl(" + hue + " 60% 60%)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(bx - bw / 2, by);
+      ctx.lineTo(bx - bw / 2 + 4, by + 8);
+      ctx.lineTo(bx + bw / 2 - 4, by + 8);
+      ctx.lineTo(bx + bw / 2, by);
+      ctx.stroke();
+      ctx.fillStyle = "#5f6675";
+      ctx.font = "10px ui-monospace, monospace";
+      ctx.fillText(String(score), 8, 14);
+    });
+  };
+
+  KERNEL_FN.gravitywell = function (p) {
+    var count = intn(p.count, 120, 30, 300);
+    var pull = num(p.pull, 1, 0.2, 2.5);
+    var hue = num(p.hue, 260, 0, 360);
+    var trail = p.trail !== false;
+    var ps = [];
+    for (var i = 0; i < count; i++) ps.push({ x: Math.random() * W, y: Math.random() * H, vx: 0, vy: 0 });
+    loop(function () {
+      ctx.fillStyle = trail ? "rgba(5,7,10,0.2)" : "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      var tx = input.px >= 0 ? input.px : W / 2;
+      var ty = input.py >= 0 ? input.py : H / 2;
+      for (var j = 0; j < ps.length; j++) {
+        var o = ps[j];
+        var dx = tx - o.x, dy = ty - o.y, d = Math.max(8, Math.hypot(dx, dy));
+        o.vx += (dx / d) * pull * 0.35;
+        o.vy += (dy / d) * pull * 0.35;
+        o.vx *= 0.96;
+        o.vy *= 0.96;
+        o.x += o.vx;
+        o.y += o.vy;
+        if (o.x < 0 || o.x > W) o.vx *= -0.6;
+        if (o.y < 0 || o.y > H) o.vy *= -0.6;
+        ctx.fillStyle = "hsl(" + (hue + Math.hypot(o.vx, o.vy) * 8) + " 70% 62%)";
+        ctx.fillRect(o.x - 1, o.y - 1, 2, 2);
+      }
     });
   };
 

@@ -3,6 +3,8 @@
 // composes the SVG. Once drawn, the item shows this instead of its emoji.
 
 const HEX = /^#[0-9a-fA-F]{3,8}$/;
+// hsl()/hsla()/rgb()/rgba() with only digits, %, spaces, commas, dots, slash
+const FN_COLOR = /^(hsla?|rgba?)\(\s*[0-9.,%\s/]+\)$/i;
 const MAX_SHAPES = 24;
 
 function n(v, d) {
@@ -11,7 +13,11 @@ function n(v, d) {
   return Math.max(-20, Math.min(120, v));
 }
 function col(v, d) {
-  return typeof v === "string" && HEX.test(v.trim()) ? v.trim().toLowerCase() : d;
+  if (typeof v !== "string") return d;
+  const s = v.trim();
+  if (HEX.test(s)) return s.toLowerCase();
+  if (FN_COLOR.test(s) && s.length < 40) return s;
+  return d;
 }
 
 // -> [{t, ...}] clamped, or null
@@ -41,9 +47,11 @@ function esc(s) {
   return String(s).replace(/[<>"&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", '"': "&quot;", "&": "&amp;" })[c]);
 }
 
-// -> inline <svg> string, or "" if no art
-export function artToSvg(shapes) {
+// -> inline <svg> string, or "" if no art. `stretch` fills the box (for framed
+// paintings); default keeps aspect (for objects).
+export function artToSvg(shapes, stretch) {
   if (!Array.isArray(shapes) || !shapes.length) return "";
+  const par = stretch ? "none" : "xMidYMid meet";
   const parts = [];
   for (const s of shapes) {
     const st = s.stroke ? ` stroke="${esc(s.stroke)}" stroke-width="${s.sw || 1}"` : "";
@@ -53,7 +61,7 @@ export function artToSvg(shapes) {
     else if (s.t === "line") parts.push(`<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" stroke="${esc(s.stroke)}" stroke-width="${s.sw}" stroke-linecap="round"/>`);
     else if (s.t === "poly") parts.push(`<polygon points="${s.points.map((p) => p.join(",")).join(" ")}" fill="${esc(s.fill)}"${st}/>`);
   }
-  return `<svg class="obj-art" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">${parts.join("")}</svg>`;
+  return `<svg class="obj-art" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="${par}">${parts.join("")}</svg>`;
 }
 
 export const ART_HELP =

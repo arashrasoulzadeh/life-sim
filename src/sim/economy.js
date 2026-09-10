@@ -3,6 +3,7 @@
 // it works harder, it can't buy, it may have to sell things it likes.
 
 import { OBJECTS } from "./objects.js";
+import { residentsIncome } from "./persons.js";
 
 export const RENT = 55; // charged every RENT_EVERY days
 export const RENT_EVERY = 7;
@@ -22,7 +23,7 @@ function ownedAppliances(w) {
 
 // the daily running cost (not counting rent)
 export function upkeepPerDay(w) {
-  return BASE_UPKEEP + APPLIANCE_DRAW * ownedAppliances(w) + (w.pet ? CAT_FOOD : 0);
+  return BASE_UPKEEP + APPLIANCE_DRAW * ownedAppliances(w) + (w.pet ? CAT_FOOD : 0) + 1.6 * (w.extras || []).length;
 }
 
 export function freshFinances() {
@@ -37,6 +38,12 @@ export function chargeDay(w) {
 
   w.bank += DAILY_REWARD;
   lines.push({ kind: "reward", amount: DAILY_REWARD, note: "daily reward" });
+
+  const housemates = residentsIncome(w);
+  if (housemates > 0) {
+    w.bank += housemates;
+    lines.push({ kind: "housemates", amount: housemates, note: `housemates (${(w.extras || []).filter((r) => r.income > 0).length})` });
+  }
 
   const up = Math.round(upkeepPerDay(w) * 100) / 100;
   w.bank -= up;
@@ -90,7 +97,9 @@ export function financeLine(w) {
   const f = w.finances || freshFinances();
   const up = Math.round(upkeepPerDay(w));
   const dueIn = RENT_EVERY - (w.day - (f.lastRentDay || 0));
+  const hm = residentsIncome(w);
   const parts = [`upkeep ~${up}c/day`, `rent ${RENT}c in ${Math.max(0, dueIn)}d`];
+  if (hm) parts.push(`housemates +${hm}c/day`);
   if (f.broke) parts.push("BROKE — no spending");
   if (f.missedRent) parts.push(`${f.missedRent} rent missed`);
   return parts.join(" · ");
