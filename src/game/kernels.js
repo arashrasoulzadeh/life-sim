@@ -187,6 +187,105 @@ export const KERNELS = {
       hue: { type: "int", min: 0, max: 360, def: 190 },
     },
   },
+  matrix: {
+    desc: "columns of glyphs raining down, brightest at the head",
+    params: {
+      density: { type: "num", min: 0.3, max: 1, def: 0.7 },
+      speed: { type: "num", min: 0.4, max: 3, def: 1.2 },
+      glyph: { type: "enum", values: ["01", "アイ", ".:/|", "+*=", "#%@"], def: "01" },
+      hue: { type: "int", min: 0, max: 360, def: 130 },
+    },
+  },
+  plasma: {
+    desc: "a smooth shifting field of colour",
+    params: {
+      scale: { type: "num", min: 0.5, max: 4, def: 1.6 },
+      speed: { type: "num", min: 0.2, max: 3, def: 1 },
+      hue: { type: "int", min: 0, max: 360, def: 280 },
+    },
+  },
+  metaballs: {
+    desc: "blobs that merge and split; drag to push them",
+    params: {
+      count: { type: "int", min: 3, max: 12, def: 6 },
+      speed: { type: "num", min: 0.3, max: 2.5, def: 1 },
+      hue: { type: "int", min: 0, max: 360, def: 200 },
+    },
+  },
+  sand: {
+    desc: "falling sand — hold the pointer to pour more",
+    params: {
+      cell: { type: "int", min: 2, max: 6, def: 3 },
+      hue: { type: "int", min: 0, max: 360, def: 40 },
+      spread: { type: "num", min: 0, max: 1, def: 0.6 },
+    },
+  },
+  lightning: {
+    desc: "branching bolts strike from the top; tap to aim",
+    params: {
+      rate: { type: "num", min: 0.3, max: 3, def: 1 },
+      forks: { type: "int", min: 1, max: 6, def: 3 },
+      hue: { type: "int", min: 0, max: 360, def: 210 },
+    },
+  },
+  kaleido: {
+    desc: "your pointer trail mirrored into a kaleidoscope",
+    params: {
+      slices: { type: "int", min: 3, max: 12, def: 6 },
+      fade: { type: "num", min: 0.01, max: 0.15, def: 0.05 },
+      hue: { type: "int", min: 0, max: 360, def: 320 },
+    },
+  },
+  swarm: {
+    desc: "dots chase the pointer but keep their distance",
+    params: {
+      count: { type: "int", min: 20, max: 200, def: 80 },
+      speed: { type: "num", min: 0.4, max: 3, def: 1.3 },
+      hue: { type: "int", min: 0, max: 360, def: 20 },
+    },
+  },
+  constellation: {
+    desc: "drifting stars linked by nearby lines; tap to add one",
+    params: {
+      count: { type: "int", min: 10, max: 90, def: 45 },
+      reach: { type: "int", min: 10, max: 40, def: 22 },
+      speed: { type: "num", min: 0.2, max: 2, def: 0.7 },
+      hue: { type: "int", min: 0, max: 360, def: 210 },
+    },
+  },
+  bubbles: {
+    desc: "bubbles rise and wobble; tap to pop them",
+    params: {
+      rate: { type: "num", min: 0.3, max: 3, def: 1 },
+      speed: { type: "num", min: 0.3, max: 2.5, def: 1 },
+      hue: { type: "int", min: 0, max: 360, def: 190 },
+    },
+  },
+  fireflies: {
+    desc: "fireflies blink and slowly fall into sync",
+    params: {
+      count: { type: "int", min: 15, max: 120, def: 50 },
+      speed: { type: "num", min: 0.2, max: 2, def: 0.8 },
+      sync: { type: "num", min: 0, max: 1, def: 0.4 },
+      hue: { type: "int", min: 0, max: 360, def: 70 },
+    },
+  },
+  rope: {
+    desc: "a hanging rope you can swing with the pointer",
+    params: {
+      links: { type: "int", min: 8, max: 30, def: 16 },
+      gravity: { type: "num", min: 0.1, max: 1, def: 0.4 },
+      hue: { type: "int", min: 0, max: 360, def: 30 },
+    },
+  },
+  maze: {
+    desc: "a maze draws itself, then a dot solves it, then again",
+    params: {
+      cell: { type: "int", min: 6, max: 20, def: 10 },
+      speed: { type: "num", min: 0.4, max: 3, def: 1.3 },
+      hue: { type: "int", min: 0, max: 360, def: 160 },
+    },
+  },
 };
 
 // nudge a spec's numbers a little (the AI fiddling with its game)

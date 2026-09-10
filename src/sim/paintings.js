@@ -57,8 +57,8 @@ export function cleanPaintings(raw) {
   if (!Array.isArray(raw)) return null;
   const out = [];
   for (const item of raw.slice(0, MAX_PAINTINGS)) {
-    const shapes = cleanArt(Array.isArray(item) ? item : item && item.shapes);
-    if (shapes) out.push(shapes);
+    const art = cleanArt(item); // array | {shapes,mirror,bg}
+    if (art) out.push(art);
   }
   return out.length ? out : null;
 }

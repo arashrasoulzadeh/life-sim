@@ -1,7 +1,10 @@
 // Generative art the AI hangs in the window. It never writes markup — it picks
 // a style and a few numbers from a closed vocabulary, and this builds the layers.
 
-export const ART_STYLES = ["bands", "rings", "scatter", "hills", "panes", "aurora", "waves", "city", "forest", "nebula", "sunburst", "stainedglass", "tide", "dunes"];
+export const ART_STYLES = [
+  "bands", "rings", "scatter", "hills", "panes", "aurora", "waves", "city", "forest", "nebula",
+  "sunburst", "stainedglass", "tide", "dunes", "spiral", "mesh", "blossom", "strata", "prism", "orbits", "cascade",
+];
 
 export function cleanWindowArt(raw) {
   if (!raw || typeof raw !== "object") return null;
@@ -145,6 +148,74 @@ export function windowArtCss(art) {
         stops.push(`${i % 2 ? a : dk} ${from}deg ${to}deg`);
       }
       return `radial-gradient(circle at 50% 46%, hsl(${art.hue} 80% 60%) 0 6%, transparent 8%), conic-gradient(from 0deg at 50% 46%, ${stops.join(", ")})`;
+    }
+    case "spiral": {
+      const arms = Math.max(2, Math.round(2 + art.density * 5));
+      const stops = [];
+      for (let i = 0; i < arms * 2; i++) {
+        stops.push(`${i % 2 ? a : "transparent"} ${((i / (arms * 2)) * 360).toFixed(1)}deg`);
+      }
+      return `conic-gradient(from 0deg at 50% 50%, ${stops.join(", ")}), radial-gradient(circle at 50% 50%, ${dk}, hsl(${art.hue2} 40% 18%))`;
+    }
+    case "mesh": {
+      const c = Math.max(4, Math.round(4 + art.density * 6));
+      const g = (100 / c).toFixed(2);
+      return `linear-gradient(${hexA(a, 0.4)} 1.5px, transparent 1.5px) 0 0 / ${g}% ${g}%,
+              linear-gradient(90deg, ${hexA(b, 0.4)} 1.5px, transparent 1.5px) 0 0 / ${g}% ${g}%,
+              radial-gradient(circle at 50% 40%, hsl(${art.hue2} 45% 26%), ${dk})`;
+    }
+    case "blossom": {
+      const r = rng(art.hue + art.hue2 + 11);
+      const petals = [];
+      const n = Math.max(5, Math.round(5 + art.density * 8));
+      for (let i = 0; i < n; i++) {
+        const cx = 50 + Math.cos((i / n) * 6.283) * 22;
+        const cy = 45 + Math.sin((i / n) * 6.283) * 22;
+        petals.push(`radial-gradient(20% 30% at ${cx.toFixed(1)}% ${cy.toFixed(1)}%, ${r() > 0.5 ? a : b} 0 55%, transparent 60%)`);
+      }
+      petals.push(`radial-gradient(circle at 50% 45%, hsl(${art.hue} 80% 65%) 0 8%, transparent 12%)`);
+      petals.push(dk);
+      return petals.join(", ");
+    }
+    case "strata": {
+      const layers = [];
+      let y = 0;
+      const r = rng(art.hue2 * 3 + 7);
+      while (y < 100) {
+        const h = 6 + r() * 16;
+        const l = 14 + r() * 40;
+        layers.push(`linear-gradient(hsl(${r() > 0.5 ? art.hue : art.hue2} 45% ${l | 0}%) 0 0) 0 ${y.toFixed(1)}% / 100% ${h.toFixed(1)}% no-repeat`);
+        y += h;
+      }
+      layers.push(dk);
+      return layers.join(", ");
+    }
+    case "prism":
+      return `linear-gradient(60deg, hsl(${art.hue} 75% 55%), hsl(${(art.hue + 60) % 360} 75% 55%), hsl(${art.hue2} 75% 55%), hsl(${(art.hue2 + 60) % 360} 75% 50%)), linear-gradient(${dk}, transparent)`;
+    case "orbits": {
+      const rings = Math.max(3, Math.round(3 + art.density * 5));
+      const g = [`radial-gradient(circle at 50% 50%, hsl(${art.hue} 80% 62%) 0 4%, transparent 6%)`];
+      for (let i = 1; i <= rings; i++) {
+        const rr = (i / (rings + 1)) * 46;
+        g.push(`radial-gradient(circle at 50% 50%, transparent 0 ${(rr - 0.6).toFixed(1)}%, ${hexA(i % 2 ? a : b, 0.6)} ${(rr - 0.6).toFixed(1)}% ${(rr + 0.6).toFixed(1)}%, transparent ${(rr + 0.6).toFixed(1)}%)`);
+        const px = (50 + Math.cos(i * 1.3) * rr).toFixed(1);
+        const py = (50 + Math.sin(i * 1.3) * rr).toFixed(1);
+        g.push(`radial-gradient(circle at ${px}% ${py}%, ${i % 2 ? b : a} 0 2%, transparent 3%)`);
+      }
+      g.push(`hsl(${art.hue2} 30% 10%)`);
+      return g.join(", ");
+    }
+    case "cascade": {
+      const cols = Math.max(4, Math.round(5 + art.density * 8));
+      const w = (100 / cols).toFixed(2);
+      const bars = [];
+      const r = rng(art.hue * 2 + 3);
+      for (let i = 0; i < cols; i++) {
+        const top = (r() * 60).toFixed(1);
+        bars.push(`linear-gradient(${r() > 0.5 ? a : b} 0 0) ${(i * (100 / cols)).toFixed(2)}% ${top}% / ${w}% ${(20 + r() * 50).toFixed(1)}% no-repeat`);
+      }
+      bars.push(`linear-gradient(${dk}, hsl(${art.hue2} 40% 18%))`);
+      return bars.join(", ");
     }
     default:
       return dk;
