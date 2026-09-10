@@ -38,6 +38,11 @@ export function cleanArt(raw) {
     } else if (t === "poly") {
       const pts = Array.isArray(s.points) ? s.points.slice(0, 16).map((p) => [n(p[0], 50), n(p[1], 50)]) : [];
       if (pts.length >= 3) out.push({ t, points: pts, fill: col(s.fill, "#888"), stroke: col(s.stroke, null), sw: n(s.sw, 0) });
+    } else if (t === "path" || t === "polyline") {
+      const pts = Array.isArray(s.points) ? s.points.slice(0, 40).map((p) => [n(p[0], 50), n(p[1], 50)]) : [];
+      if (pts.length >= 2) out.push({ t: "path", points: pts, stroke: col(s.stroke, "#888"), sw: Math.max(0.5, n(s.sw, 2)), fill: col(s.fill, null) });
+    } else if (t === "arc") {
+      out.push({ t, x: n(s.x, 50), y: n(s.y, 50), rad: Math.max(0.5, Math.min(80, Number(s.rad ?? s.r) || 12)), a0: n(s.a0, 0), a1: n(s.a1, 180), stroke: col(s.stroke, "#888"), sw: Math.max(0.5, n(s.sw, 2)) });
     }
   }
   return out.length ? out : null;
@@ -60,9 +65,17 @@ export function artToSvg(shapes, stretch) {
     else if (s.t === "ellipse") parts.push(`<ellipse cx="${s.x}" cy="${s.y}" rx="${s.rx}" ry="${s.ry}" fill="${esc(s.fill)}"${st}/>`);
     else if (s.t === "line") parts.push(`<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" stroke="${esc(s.stroke)}" stroke-width="${s.sw}" stroke-linecap="round"/>`);
     else if (s.t === "poly") parts.push(`<polygon points="${s.points.map((p) => p.join(",")).join(" ")}" fill="${esc(s.fill)}"${st}/>`);
+    else if (s.t === "path") parts.push(`<polyline points="${s.points.map((p) => p.join(",")).join(" ")}" fill="${s.fill ? esc(s.fill) : "none"}" stroke="${esc(s.stroke)}" stroke-width="${s.sw}" stroke-linecap="round" stroke-linejoin="round"/>`);
+    else if (s.t === "arc") {
+      const r0 = (s.a0 * Math.PI) / 180, r1 = (s.a1 * Math.PI) / 180;
+      const x0 = (s.x + s.rad * Math.cos(r0)).toFixed(2), y0 = (s.y + s.rad * Math.sin(r0)).toFixed(2);
+      const x1 = (s.x + s.rad * Math.cos(r1)).toFixed(2), y1 = (s.y + s.rad * Math.sin(r1)).toFixed(2);
+      const large = Math.abs(s.a1 - s.a0) > 180 ? 1 : 0;
+      parts.push(`<path d="M ${x0} ${y0} A ${s.rad} ${s.rad} 0 ${large} 1 ${x1} ${y1}" fill="none" stroke="${esc(s.stroke)}" stroke-width="${s.sw}" stroke-linecap="round"/>`);
+    }
   }
   return `<svg class="obj-art" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="${par}">${parts.join("")}</svg>`;
 }
 
 export const ART_HELP =
-  'shapes (0-100 box, y down): {"t":"rect","x","y","w","h","r"?,"fill":"#rgb","stroke"?,"sw"?} / {"t":"circle","x","y","rad","fill",...} / {"t":"ellipse","x","y","rx","ry","fill"} / {"t":"line","x1","y1","x2","y2","stroke","sw"} / {"t":"poly","points":[[x,y],...],"fill"}. Max 24 shapes, simple and recognisable.';
+  'shapes (0-100 box, y down): rect{x,y,w,h,r?,fill} / circle{x,y,rad,fill} / ellipse{x,y,rx,ry,fill} / line{x1,y1,x2,y2,stroke,sw} / poly{points:[[x,y]..],fill} / path{points:[[x,y]..],stroke,sw} / arc{x,y,rad,a0,a1,stroke,sw}. fill/stroke = #hex or hsl(h s% l%). Max 24 shapes, simple and recognisable.';

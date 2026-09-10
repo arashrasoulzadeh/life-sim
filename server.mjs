@@ -1117,6 +1117,35 @@ const server = createServer(async (req, res) => {
   if (path === "/api/version") return sendJSON(res, JSON.stringify({ build: BUILD_ID }));
   if (path === "/api/writings") return sendJSON(res, JSON.stringify(Q.writeList.all(String(SEED))));
 
+  if (path === "/api/people") {
+    const hh = world.household || {};
+    const one = (p, slot) => ({
+      slot,
+      name: p.name || "",
+      gender: p.gender || "n",
+      role: p.role || (slot === "you" ? "the AI assistant" : slot === "spouse" ? `${hh.surname || ""} spouse`.trim() : ""),
+      income: slot === "resident" ? p.income || 0 : slot === "you" ? "viewers + rewards" : 0,
+      look: p.look || {},
+      room: p.room,
+      personality: p.personality || {},
+      needs: p.needs || null,
+      skills: slot === "you" ? p.skills || null : null,
+      thought: p.lastThought || "",
+    });
+    return sendJSON(res, JSON.stringify({
+      surname: hh.surname || "",
+      marriedDay: hh.marriedDay || 1,
+      day: world.day,
+      togetherness: Math.round(world.togetherness ?? 50),
+      pet: world.pet ? { name: world.pet.name, bond: Math.round((world.pet.bond || 0) * 100), state: world.pet.state } : null,
+      people: [
+        one(world.agent, "you"),
+        ...(world.partner ? [one(world.partner, "spouse")] : []),
+        ...(world.extras || []).map((p) => one(p, "resident")),
+      ],
+    }));
+  }
+
   if (path === "/api/journal") {
     const life = Q.lifeGet.get(String(SEED));
     return sendJSON(res, JSON.stringify({

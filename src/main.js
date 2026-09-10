@@ -341,7 +341,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // ---------- panels ----------
-const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo"), guest: $("guest"), vote: $("vote"), journal: $("journal"), memories: $("memories") };
+const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo"), guest: $("guest"), vote: $("vote"), journal: $("journal"), memories: $("memories"), people: $("people") };
 $("about-btn").addEventListener("click", () => dlgs.about.showModal());
 for (const id of Object.keys(dlgs)) {
   if (!dlgs[id]) continue;
@@ -636,6 +636,58 @@ $("mem-all")?.addEventListener("click", async () => {
     $("mem-msg").textContent = "couldn't load";
   }
 });
+const GENDER_WORD = { f: "she/her", m: "he/him", n: "they/them" };
+async function openPeople() {
+  dlgs.people.showModal();
+  const body = $("people-body");
+  body.innerHTML = "loading…";
+  try {
+    const d = await fetch("/api/people").then((r) => r.json());
+    const rows = d.people
+      .map((p) => {
+        const L = p.look || {};
+        const tag =
+          p.slot === "you"
+            ? '<span class="tag you">you · the AI</span>'
+            : p.slot === "spouse"
+              ? '<span class="tag spouse">spouse</span>'
+              : '<span class="tag">resident</span>';
+        const pr = p.personality || {};
+        const traitBar = (k, v) => `<span class="bar">${k} <em>${Math.round((v || 0) * 100)}</em></span>`;
+        const bars = [
+          traitBar("diligence", pr.diligence),
+          traitBar("sociability", pr.sociability),
+          traitBar("curiosity", pr.curiosity),
+          traitBar("restless", pr.restlessness),
+        ].join("");
+        const money =
+          typeof p.income === "number" ? (p.income ? `+${p.income}c/day` : "no income") : String(p.income || "");
+        const sk = p.skills
+          ? `<div class="line">skills — writing ${Math.round(p.skills.writing)} · coding ${Math.round(p.skills.coding)} · tinkering ${Math.round(p.skills.tinkering)} · talking ${Math.round(p.skills.talking)}</div>`
+          : "";
+        return `<div class="person">
+          <div class="swatch">
+            <i style="height:34%;background:${L.hair || "#222"}"></i>
+            <i style="height:20%;background:${L.skin || "#e0c090"}"></i>
+            <i style="flex:1;background:${L.shirt || "#889"}"></i>
+          </div>
+          <div class="who">
+            <div><b>${esc(p.name)}</b>${tag}</div>
+            <div class="line">${esc(p.role || "—")} · ${GENDER_WORD[p.gender] || "they/them"} · ${money} · in the ${esc(p.room || "flat")}</div>
+            ${p.thought ? `<div class="line">“${esc(p.thought)}”</div>` : ""}
+            ${sk}
+            <div class="bars">${bars}</div>
+          </div>
+        </div>`;
+      })
+      .join("");
+    const foot = `<div class="line" style="margin-top:10px;color:#7f8a9c">${d.people.length}/10 · married day ${d.marriedDay} · togetherness ${d.togetherness}%${d.pet ? ` · ${d.pet.name || "the cat"} bond ${d.pet.bond}%` : ""}</div>`;
+    body.innerHTML = rows + foot;
+  } catch {
+    body.innerHTML = `<span class="dim">couldn't load</span>`;
+  }
+}
+$("people-btn")?.addEventListener("click", openPeople);
 $("mem-btn")?.addEventListener("click", openMemories);
 $("journal-btn")?.addEventListener("click", openJournal);
 $("vote-btn")?.addEventListener("click", openVote);

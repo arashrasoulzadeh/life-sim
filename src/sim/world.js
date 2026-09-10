@@ -304,6 +304,7 @@ export function tick(w, dt) {
   );
 
   updateMood(w.mood, w.agent.needs, dt);
+  separatePeople(w);
 
   // daily tallies
   w.tally.minFocus = Math.min(w.tally.minFocus, w.agent.needs.focus);
@@ -312,6 +313,32 @@ export function tick(w, dt) {
   w.tally.repSamples++;
 
   if (w.day !== prevDay) onNewDay(w);
+}
+
+// nobody stands inside anybody else — a soft push-apart for people sharing a room
+const PERSONAL_SPACE = 15;
+function separatePeople(w) {
+  const here = [w.agent, w.partner, ...(w.extras || [])].filter((p) => p && p.transit <= 0);
+  for (let i = 0; i < here.length; i++) {
+    for (let j = i + 1; j < here.length; j++) {
+      const a = here[i];
+      const b = here[j];
+      if (a.room !== b.room) continue;
+      let dx = b.x - a.x;
+      let dy = b.y - a.y;
+      let d = Math.hypot(dx, dy);
+      if (d >= PERSONAL_SPACE) continue;
+      if (d < 0.01) { dx = (i % 2 ? 1 : -1); dy = 0; d = 1; }
+      const push = (PERSONAL_SPACE - d) / 2;
+      const ux = (dx / d) * push;
+      const uy = (dy / d) * push * 0.5;
+      a.x -= ux; a.y -= uy;
+      b.x += ux; b.y += uy;
+      // don't fight their walk target — nudge it too so they settle spread out
+      if (!a.moving) { a.tx = a.x; a.ty = a.y; }
+      if (!b.moving) { b.tx = b.x; b.ty = b.y; }
+    }
+  }
 }
 
 export function drainFx(w) {

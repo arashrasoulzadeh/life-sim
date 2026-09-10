@@ -1,7 +1,7 @@
 // Generative art the AI hangs in the window. It never writes markup — it picks
 // a style and a few numbers from a closed vocabulary, and this builds the layers.
 
-export const ART_STYLES = ["bands", "rings", "scatter", "hills", "panes", "aurora", "waves", "city", "forest", "nebula", "sunburst"];
+export const ART_STYLES = ["bands", "rings", "scatter", "hills", "panes", "aurora", "waves", "city", "forest", "nebula", "sunburst", "stainedglass", "tide", "dunes"];
 
 export function cleanWindowArt(raw) {
   if (!raw || typeof raw !== "object") return null;
@@ -34,6 +34,7 @@ export function windowArtCss(art) {
   const a = `hsl(${art.hue} 60% 55%)`;
   const b = `hsl(${art.hue2} 60% 45%)`;
   const dk = `hsl(${art.hue} 45% 14%)`;
+  const hexA = (h, o) => h.replace(")", ` / ${o})`);
   switch (art.style) {
     case "bands":
       return `linear-gradient(${b} 0 22%, ${a} 22% 40%, hsl(${art.hue2} 50% 30%) 40% 60%, ${dk} 60% 100%)`;
@@ -103,6 +104,37 @@ export function windowArtCss(art) {
       }
       clouds.push("#04060c");
       return clouds.join(", ");
+    }
+    case "stainedglass": {
+      const r = rng(art.hue * 5 + art.hue2 + 3);
+      const cells = [];
+      const n = Math.max(6, Math.round(6 + art.density * 12));
+      for (let i = 0; i < n; i++) {
+        const x = (r() * 100).toFixed(1);
+        const y = (r() * 100).toFixed(1);
+        const rad = (14 + r() * 22).toFixed(1);
+        const hh = Math.round((r() > 0.5 ? art.hue : art.hue2) + (r() - 0.5) * 40);
+        cells.push(`radial-gradient(circle at ${x}% ${y}%, hsl(${hh} 65% 50%) 0 ${rad}%, transparent ${(+rad + 2).toFixed(1)}%)`);
+      }
+      cells.push(`hsl(${art.hue} 20% 8%)`);
+      return cells.join(", ");
+    }
+    case "tide": {
+      const layers = [];
+      const rows = Math.max(3, Math.round(3 + art.density * 6));
+      for (let i = 0; i < rows; i++) {
+        const yy = 100 - (i / rows) * 100;
+        const c = i % 2 ? a : b;
+        layers.push(`radial-gradient(160% 30% at 50% ${yy}%, ${hexA(c, 0.5)} 0 40%, transparent 42%)`);
+      }
+      layers.push(`linear-gradient(hsl(${art.hue2} 40% 22%), ${dk})`);
+      return layers.join(", ");
+    }
+    case "dunes": {
+      return `radial-gradient(120% 40% at 30% 100%, ${b} 0 45%, transparent 47%),
+              radial-gradient(120% 38% at 75% 100%, ${a} 0 42%, transparent 44%),
+              radial-gradient(90% 30% at 50% 100%, hsl(${art.hue} 55% 40%) 0 40%, transparent 42%),
+              linear-gradient(hsl(${art.hue} 70% 62%) 0 30%, hsl(${art.hue2} 45% 30%))`;
     }
     case "sunburst": {
       const stops = [];

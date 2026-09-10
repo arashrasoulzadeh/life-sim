@@ -721,6 +721,100 @@
     });
   };
 
+  KERNEL_FN.fractaltree = function (p) {
+    var depth = intn(p.depth, 9, 5, 11);
+    var ang = num(p.angle, 24, 8, 40) * (Math.PI / 180);
+    var sway = num(p.sway, 0.8, 0, 2);
+    var hue = num(p.hue, 130, 0, 360);
+    var seedv = Math.random();
+    var t = 0;
+    function branch(x, y, a, len, d) {
+      if (d <= 0 || len < 1) return;
+      var w = t * 0.02 * sway + Math.sin(seedv * 9 + d) * 0.02 * sway;
+      var nx = x + Math.cos(a + w) * len;
+      var ny = y + Math.sin(a + w) * len;
+      ctx.strokeStyle = "hsl(" + (hue + (depth - d) * 12) + " 55% " + (30 + (depth - d) * 5) + "%)";
+      ctx.lineWidth = Math.max(0.5, d * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(nx, ny);
+      ctx.stroke();
+      branch(nx, ny, a - ang, len * 0.72, d - 1);
+      branch(nx, ny, a + ang, len * 0.72, d - 1);
+    }
+    loop(function () {
+      for (var k = 0; k < takeTaps().length; k++) seedv = Math.random();
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      t += 1;
+      branch(W / 2, H - 4, -Math.PI / 2, Math.min(W, H) * 0.22, depth);
+    });
+  };
+
+  KERNEL_FN.pendulum = function (p) {
+    var damp = 1 - num(p.damp, 0.002, 0, 0.02);
+    var speed = num(p.speed, 1, 0.3, 2.5);
+    var hue = num(p.hue, 300, 0, 360);
+    var trail = p.trail !== false;
+    var a1 = 2, a2 = 2, v1 = 0, v2 = 0;
+    var L = Math.min(W, H) * 0.22, m = 1, g = 0.5 * speed;
+    loop(function () {
+      ctx.fillStyle = trail ? "rgba(5,7,10,0.06)" : "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      for (var s = 0; s < 3; s++) {
+        var num1 = -g * (2 * m + m) * Math.sin(a1) - m * g * Math.sin(a1 - 2 * a2) - 2 * Math.sin(a1 - a2) * m * (v2 * v2 * L + v1 * v1 * L * Math.cos(a1 - a2));
+        var den = L * (2 * m + m - m * Math.cos(2 * a1 - 2 * a2));
+        var ac1 = num1 / (den || 1);
+        var num2 = 2 * Math.sin(a1 - a2) * (v1 * v1 * L * (2 * m) + g * (2 * m) * Math.cos(a1) + v2 * v2 * L * m * Math.cos(a1 - a2));
+        var ac2 = num2 / (L * (2 * m - m * Math.cos(2 * a1 - 2 * a2)) || 1);
+        v1 = (v1 + ac1) * damp;
+        v2 = (v2 + ac2) * damp;
+        a1 += v1 * 0.04;
+        a2 += v2 * 0.04;
+      }
+      var ox = W / 2, oy = H * 0.35;
+      var x1 = ox + L * Math.sin(a1), y1 = oy + L * Math.cos(a1);
+      var x2 = x1 + L * Math.sin(a2), y2 = y1 + L * Math.cos(a2);
+      ctx.strokeStyle = "hsl(" + hue + " 30% 45%)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.fillStyle = "hsl(" + ((hue + performance.now() * 0.02) % 360) + " 80% 65%)";
+      ctx.beginPath();
+      ctx.arc(x2, y2, 3, 0, 6.29);
+      ctx.fill();
+    });
+  };
+
+  KERNEL_FN.ripple = function (p) {
+    var decay = num(p.decay, 0.02, 0.005, 0.05);
+    var speed = num(p.speed, 1.6, 0.5, 4);
+    var hue = num(p.hue, 190, 0, 360);
+    var rings = [];
+    loop(function () {
+      var taps = takeTaps();
+      for (var k = 0; k < taps.length; k++) rings.push({ x: taps[k].x, y: taps[k].y, r: 0, a: 1 });
+      if (input.down && input.px >= 0 && rings.length < 40 && Math.random() < 0.3) rings.push({ x: input.px, y: input.py, r: 0, a: 1 });
+      if (!rings.length && Math.random() < 0.02) rings.push({ x: Math.random() * W, y: Math.random() * H, r: 0, a: 1 });
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      for (var i = rings.length - 1; i >= 0; i--) {
+        var rg = rings[i];
+        rg.r += speed;
+        rg.a -= decay;
+        if (rg.a <= 0) { rings.splice(i, 1); continue; }
+        ctx.strokeStyle = "hsl(" + hue + " 70% 60% / " + rg.a.toFixed(2) + ")";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(rg.x, rg.y, rg.r, 0, 6.29);
+        ctx.stroke();
+      }
+    });
+  };
+
   var running = false;
   function loop(fn) {
     if (running) return; // one kernel at a time

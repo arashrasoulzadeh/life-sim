@@ -255,6 +255,31 @@
       .shop-item.owned .n::after { content: " ✓"; color: #7ad0a0; }
       .shop-scroll { max-height: 56vh; overflow: auto; margin-top: 4px; }
 
+      /* people dialog */
+      #people { max-width: 560px; }
+      .person {
+        display: flex; gap: 12px; align-items: flex-start;
+        padding: 10px 0; border-bottom: 1px solid #1a1f27;
+      }
+      .person:last-child { border-bottom: 0; }
+      .person .swatch {
+        width: 34px; height: 44px; border-radius: 3px; flex: none;
+        display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 0 0 1px #232a33;
+      }
+      .person .swatch i { display: block; }
+      .person .who { flex: 1; min-width: 0; }
+      .person .who b { color: #e6e9f0; }
+      .person .tag {
+        font-size: 10px; padding: 1px 6px; border-radius: 3px; margin-left: 6px;
+        background: #232a33; color: #aab2be;
+      }
+      .person .tag.you { background: #1f3a2c; color: #9ee6c0; }
+      .person .tag.spouse { background: #3a2440; color: #e6a7e6; }
+      .person .line { font-size: 12px; color: #9aa3b3; margin-top: 3px; }
+      .person .bars { display: flex; gap: 10px; margin-top: 5px; flex-wrap: wrap; }
+      .person .bar { font-size: 10px; color: #7f8a9c; font-variant-numeric: tabular-nums; }
+      .person .bar em { color: #c3c8d2; font-style: normal; }
+
       /* game code dialog */
       .gc-meta { font-size: 12px; color: #aab2be; margin-bottom: 10px; }
       .gc-meta b { color: #e6e9f0; }
@@ -293,6 +318,7 @@
         </span>
         <span class="grow"></span>
         <span class="grp">
+          <button id="people-btn">people</button>
           <button id="mem-btn">memory</button>
           <button id="journal-btn">journal</button>
           <button id="vote-btn">vote</button>
@@ -367,6 +393,12 @@
       <h2>THE JOURNAL</h2>
       <pre id="journal-body">…</pre>
       <button class="close" id="journal-close">close</button>
+    </dialog>
+
+    <dialog id="people">
+      <h2>WHO LIVES HERE</h2>
+      <div id="people-body">…</div>
+      <button class="close" id="people-close">close</button>
     </dialog>
 
     <dialog id="guest">

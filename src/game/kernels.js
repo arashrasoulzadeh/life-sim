@@ -161,6 +161,32 @@ export const KERNELS = {
       trail: { type: "bool", def: true },
     },
   },
+  fractaltree: {
+    desc: "a branching tree that sways; tap to regrow it a new way",
+    params: {
+      depth: { type: "int", min: 5, max: 11, def: 9 },
+      angle: { type: "num", min: 8, max: 40, def: 24 },
+      sway: { type: "num", min: 0, max: 2, def: 0.8 },
+      hue: { type: "int", min: 0, max: 360, def: 130 },
+    },
+  },
+  pendulum: {
+    desc: "a double pendulum drawing chaotic trails",
+    params: {
+      damp: { type: "num", min: 0, max: 0.02, def: 0.002 },
+      speed: { type: "num", min: 0.3, max: 2.5, def: 1 },
+      hue: { type: "int", min: 0, max: 360, def: 300 },
+      trail: { type: "bool", def: true },
+    },
+  },
+  ripple: {
+    desc: "tap anywhere to send out expanding rings that interfere",
+    params: {
+      decay: { type: "num", min: 0.005, max: 0.05, def: 0.02 },
+      speed: { type: "num", min: 0.5, max: 4, def: 1.6 },
+      hue: { type: "int", min: 0, max: 360, def: 190 },
+    },
+  },
 };
 
 // nudge a spec's numbers a little (the AI fiddling with its game)
