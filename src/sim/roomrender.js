@@ -10,42 +10,89 @@ import { windowArtCss } from "./windowart.js";
 import { artToSvg } from "./itemart.js";
 import { paintingsHtml } from "./paintings.js";
 
-// slot coordinates in the 512x448 playfield (floor rows + a wall row)
-const SLOTS = [
-  { x: 64, y: 300 }, { x: 124, y: 300 }, { x: 184, y: 300 }, { x: 320, y: 300 }, { x: 380, y: 300 }, { x: 444, y: 300 },
-  { x: 92, y: 356 }, { x: 168, y: 356 }, { x: 244, y: 356 }, { x: 344, y: 356 }, { x: 420, y: 356 },
-  { x: 90, y: 96 }, { x: 150, y: 96 }, { x: 410, y: 96 }, { x: 452, y: 96 },
-  { x: 64, y: 410 }, { x: 220, y: 410 }, { x: 400, y: 410 }, { x: 470, y: 356 },
-];
-export const OBJECT_SLOTS = SLOTS;
+// slot coordinates in the 512x448 playfield — a candidate grid over the floor,
+// plus a row up on the bare wall for rooms that actually have one clear of
+// their big furniture piece (kept for anything importing the old export)
+const FLOOR_GRID = [296, 340, 384].flatMap((y) => [70, 140, 210, 280, 350, 420].map((x) => ({ x, y })));
+const WALL_GRID = [{ x: 80, y: 100 }, { x: 160, y: 100 }, { x: 340, y: 100 }, { x: 420, y: 100 }];
+export const OBJECT_SLOTS = FLOOR_GRID;
 
-// which of the slots above sit up on the wall (y:96) vs on the floor/counter —
-// used so wall-mounted items don't end up floating in the middle of the room
-const WALL_SLOT_IDX = SLOTS.map((s, i) => (s.y <= 100 ? i : -1)).filter((i) => i >= 0);
-const FLOOR_SLOT_IDX = SLOTS.map((s, i) => (s.y > 100 ? i : -1)).filter((i) => i >= 0);
+// each room's big furniture piece(s), in px on the 512x448 playfield — the
+// same rects FURNITURE draws as %, converted so slots can avoid sitting on
+// top of the monitor, the window, the couch cushion, the bed, etc.
+const FURNITURE_RECT = {
+  desk: [
+    { x: 97, y: 233, w: 318, h: 23 }, // desktop
+    { x: 118, y: 255, w: 26, h: 63 }, // left leg
+    { x: 369, y: 255, w: 26, h: 63 }, // right leg
+    { x: 148, y: 99, w: 216, h: 134 }, // monitor
+  ],
+  kitchen: [{ x: 46, y: 233, w: 200, h: 58 }],
+  window: [{ x: 143, y: 63, w: 226, h: 153 }],
+  couch: [{ x: 271, y: 251, w: 160, h: 59 }],
+  bed: [
+    { x: 174, y: 255, w: 180, h: 54 },
+    { x: 179, y: 237, w: 46, h: 20 },
+  ],
+  game: [{ x: 154, y: 81, w: 205, h: 132 }],
+};
+// only rooms with genuinely bare wall above their furniture get wall slots —
+// desk/window/game's big piece already fills that whole upper area
+const WALL_OK_ROOMS = new Set(["kitchen", "couch", "bed"]);
 
-// things that read as hung-on-the-wall rather than sitting/standing on the floor
-const WALL_WORDS = /clock|mirror|calendar|frame|curtain|board|sign|shelf|hook|light bar|poster|map|trophy|diploma|certificate/i;
+function clearOf(pt, rects, pad = 14) {
+  return !rects.some((r) => pt.x > r.x - pad && pt.x < r.x + r.w + pad && pt.y > r.y - pad && pt.y < r.y + r.h + pad);
+}
+const ROOM_SLOTS = {};
+for (const roomId of Object.keys(ROOMS)) {
+  const rects = FURNITURE_RECT[roomId] || [];
+  const floor = FLOOR_GRID.filter((p) => clearOf(p, rects));
+  ROOM_SLOTS[roomId] = {
+    floor: floor.length ? floor : FLOOR_GRID,
+    wall: WALL_OK_ROOMS.has(roomId) ? WALL_GRID.filter((p) => clearOf(p, rects)) : [],
+  };
+}
 
-// deterministic per-object placement: wall-ish items claim wall slots, then
-// everything is packed into the room's slot rows in a stable order (by id, so
-// a given object always lands in the same spot instead of jumping around
-// whenever the room's item list is edited elsewhere)
-function assignSlots(objects) {
+// things that read as hung-on-the-wall rather than sitting/standing on a
+// surface — deliberately specific phrases, not bare words, since "board" and
+// "clock" alone would also catch a cutting board, a keyboard, or an alarm
+// clock that actually belongs on the desk/counter
+const WALL_WORDS = /\bwall (clock|calendar)\b|\bmirror\b|\bcurtains?\b|\bpicture frame\b|\bframed print\b|\bworld map\b|\bcork board\b|\bscore ?board\b|\bdartboard\b|\bposter\b|\b\w+ ?shelf\b|\btrophy shelf\b|\bdiploma\b|\bcertificate\b/i;
+
+function hash32(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+// stable per-object placement, tuned per room: an id always hashes to the
+// same starting slot (so the layout doesn't reshuffle just because a
+// different item was bought or sold elsewhere in the room), wall-ish items
+// prefer the room's wall row when it has one, and a same-pool collision
+// probes forward to the next free slot instead of stacking two items
+function assignSlots(roomId, objects) {
+  const pools = ROOM_SLOTS[roomId] || { floor: FLOOR_GRID, wall: [] };
   const order = objects
     .map((id, i) => ({ id, i }))
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const wallQueue = [...WALL_SLOT_IDX];
-  const floorQueue = [...FLOOR_SLOT_IDX];
+  const used = new Set();
   const out = new Array(objects.length);
   for (const { id, i } of order) {
     const wallLike = WALL_WORDS.test(OBJECTS[id]?.label || id);
-    let idx;
-    if (wallLike && wallQueue.length) idx = wallQueue.shift();
-    else if (floorQueue.length) idx = floorQueue.shift();
-    else if (wallQueue.length) idx = wallQueue.shift();
-    else idx = i % SLOTS.length; // every slot taken — wrap, still stable per id
-    out[i] = SLOTS[idx];
+    const onWall = wallLike && pools.wall.length > 0;
+    const pool = onWall ? pools.wall : pools.floor;
+    const tag = onWall ? "w" : "f";
+    let idx = hash32(id) % pool.length;
+    let tries = 0;
+    while (used.has(tag + idx) && tries < pool.length) {
+      idx = (idx + 1) % pool.length;
+      tries++;
+    }
+    used.add(tag + idx);
+    out[i] = pool[idx];
   }
   return out;
 }
@@ -140,7 +187,7 @@ function winFurn(art) {
 export function roomHtml(roomId, objects, style, plants, wear, windowArt, art, couchArt) {
   const st = roomStyle(roomId, style);
   const p = st.palette;
-  const points = assignSlots(objects);
+  const points = assignSlots(roomId, objects);
   return (
     `<div class="room" data-room="${roomId}" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent};--furn:${st.furn}">` +
     `<div class="wall" data-pattern="${st.pattern}"></div><div class="floor" data-pattern="${st.floor}"></div>` +
@@ -155,7 +202,7 @@ export function roomHtml(roomId, objects, style, plants, wear, windowArt, art, c
 }
 
 export function objectsMeta(roomId, objects, objDay, plants, wear, names, keepsake, art) {
-  const points = assignSlots(objects);
+  const points = assignSlots(roomId, objects);
   return objects
     .map((id, i) => {
       const o = OBJECTS[id];
