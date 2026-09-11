@@ -286,6 +286,39 @@ export const KERNELS = {
       hue: { type: "int", min: 0, max: 360, def: 160 },
     },
   },
+  whack: {
+    desc: "targets pop up in a grid — tap them before they duck back down, score counts",
+    params: {
+      grid: { type: "int", min: 2, max: 5, def: 3 },
+      rate: { type: "num", min: 0.4, max: 2.5, def: 1 },
+      up: { type: "num", min: 0.4, max: 2, def: 0.9 },
+      hue: { type: "int", min: 0, max: 360, def: 130 },
+    },
+  },
+  runner: {
+    desc: "an endless side-scroller — tap or swipe up to jump the obstacles",
+    params: {
+      speed: { type: "num", min: 0.6, max: 3, def: 1.4 },
+      gap: { type: "num", min: 0.6, max: 2, def: 1 },
+      hue: { type: "int", min: 0, max: 360, def: 20 },
+    },
+  },
+  match: {
+    desc: "a memory grid — tap two tiles to flip them, matching pairs clear",
+    params: {
+      pairs: { type: "int", min: 3, max: 10, def: 6 },
+      hue: { type: "int", min: 0, max: 360, def: 260 },
+      hue2: { type: "int", min: 0, max: 360, def: 40 },
+    },
+  },
+  shooter: {
+    desc: "targets fall from the top — tap to fire straight up at the nearest one",
+    params: {
+      rate: { type: "num", min: 0.4, max: 2.5, def: 1 },
+      speed: { type: "num", min: 0.4, max: 2.5, def: 1 },
+      hue: { type: "int", min: 0, max: 360, def: 350 },
+    },
+  },
 };
 
 // nudge a spec's numbers a little (the AI fiddling with its game)

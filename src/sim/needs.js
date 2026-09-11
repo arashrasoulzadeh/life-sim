@@ -1,7 +1,7 @@
 import { NEED_IDS } from "./constants.js";
 
 export function freshNeeds() {
-  return { focus: 70, energy: 80, social: 55, curiosity: 60 };
+  return { focus: 70, energy: 80, social: 55, curiosity: 60, hunger: 75 };
 }
 
 // Baseline decay per real-second, before personality and phase modifiers.
@@ -10,6 +10,7 @@ const BASE_DECAY = {
   energy: 0.5,
   social: 0.42,
   curiosity: 0.6,
+  hunger: 0.48,
 };
 
 export function decayNeeds(needs, p, dt, isNight, mul = 1) {

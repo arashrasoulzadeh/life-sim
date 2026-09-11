@@ -314,6 +314,7 @@
         <span class="grp" id="ctx-actions">
           <button id="followbtn" hidden data-on="0">follow</button>
           <button id="gamecodebtn" hidden>game code</button>
+          <button id="restartbtn" hidden title="reload the game if it's stuck">↻ restart</button>
           <button id="zoombtn" hidden>⤢ grid</button>
         </span>
         <span class="grow"></span>
@@ -406,14 +407,14 @@
 
     <dialog id="conversations">
       <h2>CONVERSATIONS</h2>
-      <p style="color:#7f8a9c;font-size:12px">Morning &amp; evening reviews, plus short lines residents exchange in passing (AI-written, capped to 10 a real day).</p>
+      <p style="color:#7f8a9c;font-size:12px">Morning &amp; evening reviews, plus short lines residents exchange in passing (AI-written, capped to 10 a real day) — separated into reviews / people / game tabs.</p>
       <div id="conversations-body" style="display:flex;flex-direction:column;gap:6px;max-height:56vh;overflow:auto"></div>
       <button class="close" id="conversations-close">close</button>
     </dialog>
 
     <dialog id="games">
       <h2>GAMES MADE</h2>
-      <p style="color:#7f8a9c;font-size:12px">Every game it has commissioned for the game-room monitor — a kernel + settings, never written code.</p>
+      <p style="color:#7f8a9c;font-size:12px">Every game it has commissioned for the game-room monitor — a kernel + settings, never written code. Pick an older one to put it back on screen; a freshly made game always takes over automatically. Games can't be sold, but whichever one is on screen earns a little each day it's actually watched.</p>
       <div id="games-body" style="display:flex;flex-direction:column;gap:6px;max-height:56vh;overflow:auto"></div>
       <button class="close" id="games-close">close</button>
     </dialog>

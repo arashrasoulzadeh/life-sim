@@ -46,7 +46,16 @@ function freshTally(day) {
     repSum: 0,
     repSamples: 0,
     repAvg: 50,
+    mealsHit3: false,
   };
+}
+
+// kitchen appliances that actually cook, vs decor that just lives in there —
+// a meal made with one of these tops up a little more than a bare snack
+const COOK_WORDS = /kettle|coffee maker|espresso|rice cooker|bread maker|waffle iron|sandwich press|juicer|knife|cutting board|tea set/i;
+function hasCookingAppliance(w, room) {
+  const ids = w.rooms[room] || [];
+  return ids.some((id) => COOK_WORDS.test(OBJECTS[id]?.label || ""));
 }
 
 export function createWorld(seed) {
@@ -117,6 +126,8 @@ export function createWorld(seed) {
     vote: null, // { day, prompt, tally:{}, total } — set by the server each morning
     voteBias: null, // { work, rest, social, learn, tend } multipliers from yesterday's vote
     slept: false, // asleep at some point last night — feeds the morning dream
+    mealsToday: 0, // meals cooked so far today — the goal is 3
+    mealsYesterday: 0,
     conversation: { log: [], bubble: null, lastMorningDay: 0, lastEveningDay: 0 },
     roomDocs: {},
     dialogueRequest: null, // "morning" | "evening" — picked up by the server loop
@@ -293,6 +304,19 @@ export function tick(w, dt) {
           w.agent.lastThought = `fixed the ${fixed}`;
         }
       },
+      onEat: (room) => {
+        const cooked = hasCookingAppliance(w, room);
+        if (cooked) {
+          w.agent.needs.hunger = clamp100(w.agent.needs.hunger + 8);
+          w.agent.needs.energy = clamp100(w.agent.needs.energy + 3);
+        }
+        w.mealsToday = (w.mealsToday || 0) + 1;
+        w.fx.push("event");
+        if (w.mealsToday === 3) {
+          w.mood.valence = Math.max(-1, Math.min(1, w.mood.valence + 0.04));
+          w.tally.mealsHit3 = true;
+        }
+      },
       onRequestResolved: () => {
         w.requests = Math.max(0, w.requests - 1);
         w.tokens += 3 + Math.round(w.rng.range(0, 4));
@@ -399,6 +423,15 @@ function onNewDay(w) {
 
   // a fresh painting goes up above the couch each day (keep the last 3)
   rotatePaintings(w, w.rng);
+  if (!w.mealsToday) {
+    w.memory.slots.push({
+      id: w.memory.nextId++, kind: "spoken", text: "Skipped meals again yesterday.",
+      trait: "diligence", dir: -1, mag: 0.02, weight: 0.9, bornDay: w.day,
+    });
+    w.memory.total = (w.memory.total || 0) + 1;
+  }
+  w.mealsYesterday = w.mealsToday || 0;
+  w.mealsToday = 0;
   ensureWear(w);
   w._dayCharges = chargeDay(w); // rent + upkeep — the server writes these to the ledger
   w.yesterday = w.tally;

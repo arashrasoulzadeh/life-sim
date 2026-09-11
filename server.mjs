@@ -359,6 +359,12 @@ function restore(seed, json) {
   }
   if (!w.agent.look) w.agent.look = { skin: "#f0d9b8", shirt: "#dfe3ea", visor: "#3a4a8a" };
   if (!w.memory.overflow) w.memory.overflow = [];
+  if (!("displayGameId" in w)) w.displayGameId = w.latestGameId || 0;
+  if (typeof w.mealsToday !== "number") w.mealsToday = 0;
+  if (typeof w.mealsYesterday !== "number") w.mealsYesterday = 0;
+  for (const p of [w.agent, w.partner, ...(w.extras || [])]) {
+    if (p && p.needs && typeof p.needs.hunger !== "number") p.needs.hunger = 75;
+  }
   if (!w.weather || typeof w.weather !== "object") w.weather = { sky: "clouds", flash: 0, day: w.day, history: [] };
   if (!("day" in w.weather)) w.weather.day = w.day;
   if (!Array.isArray(w.weather.history)) w.weather.history = [];
@@ -383,6 +389,8 @@ const bankRow = Q.bankGet.get(String(SEED));
 world.bank = typeof world.bank === "number" ? world.bank : bankRow ? bankRow.balance : START_BANK;
 world.roomsVersion = world.roomsVersion || 1;
 world.latestGameId = world.latestGameId || 0;
+world.displayGameId = world.displayGameId || world.latestGameId || 0; // viewers can rewind to an older game; a fresh commission takes it back over
+world.gamesPlayToday = world.gamesPlayToday || 0; // plays since dawn — cashed into coins at the next rollover
 
 // item drawings — DB is the source of truth, mirrored into the world snapshot
 world.itemArt = { ...loadItemArt(), ...(world.itemArt || {}) };
@@ -577,6 +585,7 @@ function buildCtx() {
 // ---------- games (spec only — never code) ----------
 function commitGame(g, teach = true) {
   const id = ++world.latestGameId;
+  world.displayGameId = id; // a freshly made game takes the screen back over
   try {
     Q.gameIns.run(String(SEED), id, g.title, JSON.stringify(g.spec), world.day);
     Q.gamePrune.run(String(SEED), String(SEED));
@@ -702,6 +711,18 @@ function onNewDayServer() {
     persistBank();
     world._dayCharges = null;
   }
+
+  // games earn their keep — a small cut per play from the day before (never
+  // sellable, but not dead weight either), capped so it never dwarfs the day job
+  if (world.gamesPlayToday > 0) {
+    const income = Math.min(40, world.gamesPlayToday * 2);
+    world.bank += income;
+    world.incomeToday += income;
+    ledger("games", income, `${world.gamesPlayToday} game play${world.gamesPlayToday > 1 ? "s" : ""} yesterday`);
+    try { Q.dailyAdd.run(String(SEED), world.day, income, 0); } catch { /* ignore */ }
+    persistBank();
+  }
+  world.gamesPlayToday = 0;
 
   // record a resolved goal + last night's dream
   if (world.goal && (world.goal.done || world.goal.failed)) {
@@ -856,13 +877,18 @@ setInterval(() => {
     acc -= FIXED_DT;
   }
 
-  // agent playing a game
-  if (world.agent.room === "game" && world.latestGameId && world.agent.transit <= 0 && !world.agent.moving) {
+  // someone playing / watching the game on screen — the agent or a resident
+  const gameId = world.displayGameId || world.latestGameId;
+  const watching = [world.agent, world.partner, ...(world.extras || [])].some(
+    (p) => p && p.room === "game" && p.transit <= 0 && !p.moving,
+  );
+  if (watching && gameId) {
     world._playAcc = (world._playAcc || 0) + dtReal;
     if (world._playAcc > 8) {
       world._playAcc = 0;
+      world.gamesPlayToday = (world.gamesPlayToday || 0) + 1;
       try {
-        Q.gamePlays.run(String(SEED), world.latestGameId);
+        Q.gamePlays.run(String(SEED), gameId);
       } catch {
         /* ignore */
       }
@@ -915,6 +941,7 @@ function viewSnapshot() {
     gamesCount: world.gamesCount || 0,
     gamesMade: world.gamesMade || world.gamesCount || 0,
     latestGameId: world.latestGameId || 0,
+    displayGameId: world.displayGameId || world.latestGameId || 0,
     build: BUILD_ID,
     quote: world.quote || null,
     dream: world.dream && world.dream.day >= world.day - 1 ? world.dream : null,
@@ -1229,6 +1256,18 @@ const server = createServer(async (req, res) => {
       valence: +world.mood.valence.toFixed(2),
       history: world.weather.history || [],
     }));
+  }
+
+  const gplay = path.match(/^\/api\/games\/(\d{1,9})\/play$/);
+  if (gplay && req.method === "POST") {
+    const id = Number(gplay[1]);
+    const row = Q.gameSpec.get(String(SEED), id);
+    if (!row) {
+      res.writeHead(404);
+      return res.end("no such game");
+    }
+    world.displayGameId = id;
+    return sendJSON(res, JSON.stringify({ ok: true, displayGameId: id }));
   }
 
   const gapi = path.match(/^\/api\/games\/(\d{1,9})$/);

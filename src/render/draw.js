@@ -13,6 +13,7 @@ const NEED_COLOR = {
   energy: "#e06a5c",
   social: "#7ad0a0",
   curiosity: "#8fb8e8",
+  hunger: "#d98555",
 };
 
 const TRAIT_COLOR = {

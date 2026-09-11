@@ -78,6 +78,7 @@ function applyZoomClass() {
   $("followbtn").hidden = !z;
   $("followbtn").dataset.on = ui.follow ? "1" : "0";
   $("gamecodebtn").hidden = z !== "game" || !(world && world.latestGameId);
+  $("restartbtn").hidden = z !== "game" || !(world && (world.displayGameId || world.latestGameId));
 }
 function setZoom(z) {
   ui.zoom = z || null;
@@ -147,7 +148,7 @@ function mountFrames() {
     }
   }
   const gf = cells.game.host.querySelector(".game-frame");
-  const gid = world?.latestGameId || 0;
+  const gid = world?.displayGameId || world?.latestGameId || 0;
   if (gf) {
     const want = `/games/${gid}`;
     const cur = gf.getAttribute("src") || "";
@@ -688,30 +689,59 @@ async function openPeople() {
   }
 }
 const PHASE_TAG = { morning: "☀ morning", evening: "☾ evening", chat: "💬 chat" };
+let convRows = [];
+let convTab = "reviews"; // "reviews" | "people" | "game"
+function speakerRoomOf(r) {
+  const tag = (r.changes || []).find((c) => c.startsWith("👥 "));
+  if (!tag) return { who: "", room: "" };
+  const rest = tag.slice(2);
+  const i = rest.lastIndexOf(" · ");
+  return i < 0 ? { who: rest, room: "" } : { who: rest.slice(0, i), room: rest.slice(i + 3) };
+}
+function renderConversations() {
+  const body = $("conversations-body");
+  const filtered = convRows.filter((r) => {
+    if (convTab === "reviews") return r.phase !== "chat";
+    const { room } = speakerRoomOf(r);
+    return r.phase === "chat" && (convTab === "game" ? room === "game" : room !== "game");
+  });
+  const tabs = ["reviews", "people", "game"]
+    .map(
+      (t) =>
+        `<button data-tab="${t}" style="background:${t === convTab ? "#1f3a2c" : "#1a1f28"};border:1px solid ${t === convTab ? "#3d6b52" : "#2a2f3a"};color:#dfe4ee;border-radius:6px;padding:4px 10px;cursor:pointer;font:inherit;font-size:12px">${t}</button>`,
+    )
+    .join("");
+  const list = !filtered.length
+    ? `<span class="dim">nothing here yet</span>`
+    : filtered
+        .slice()
+        .reverse()
+        .slice(0, 80)
+        .map((r) => {
+          const { who } = speakerRoomOf(r);
+          const label = r.phase === "chat" ? who : r.phase === "morning" ? "you, at dawn" : r.phase === "evening" ? "you, at dusk" : "";
+          return `<div style="border-left:3px solid ${r.phase === "chat" ? "#8fb8e8" : "#7ad0a0"};padding:4px 8px;background:#12161d;border-radius:4px">
+            <div style="color:#5f6675;font-size:10px">day ${r.day} · ${PHASE_TAG[r.phase] || r.phase}${label ? ` · ${esc(label)}` : ""} · ${r.source || ""}</div>
+            <div style="color:#dfe4ee;font-size:12px;margin-top:2px">${esc(r.line || "")}</div>
+            ${r.reply ? `<div style="color:#8f98a8;font-size:11px;margin-top:2px">“${esc(r.reply)}”</div>` : ""}
+          </div>`;
+        })
+        .join("");
+  body.innerHTML = `<div style="display:flex;gap:6px;margin-bottom:8px">${tabs}</div><div style="display:flex;flex-direction:column;gap:6px">${list}</div>`;
+  for (const b of body.querySelectorAll("button[data-tab]")) {
+    b.addEventListener("click", () => {
+      convTab = b.dataset.tab;
+      renderConversations();
+    });
+  }
+}
 async function openConversations() {
   dlgs.conversations.showModal();
   const body = $("conversations-body");
   body.innerHTML = "loading…";
   try {
-    const rows = await fetch("/api/conversations").then((r) => r.json());
-    if (!rows.length) {
-      body.innerHTML = `<span class="dim">nothing yet</span>`;
-      return;
-    }
-    body.innerHTML = rows
-      .slice()
-      .reverse()
-      .slice(0, 80)
-      .map((r) => {
-        const speakTag = (r.changes || []).find((c) => c.startsWith("👥 "));
-        const who = r.phase === "chat" && speakTag ? speakTag.slice(2) : r.phase === "morning" ? "you, at dawn" : r.phase === "evening" ? "you, at dusk" : "";
-        return `<div style="border-left:3px solid ${r.phase === "chat" ? "#8fb8e8" : "#7ad0a0"};padding:4px 8px;background:#12161d;border-radius:4px">
-          <div style="color:#5f6675;font-size:10px">day ${r.day} · ${PHASE_TAG[r.phase] || r.phase}${who ? ` · ${esc(who)}` : ""} · ${r.source || ""}</div>
-          <div style="color:#dfe4ee;font-size:12px;margin-top:2px">${esc(r.line || "")}</div>
-          ${r.reply ? `<div style="color:#8f98a8;font-size:11px;margin-top:2px">“${esc(r.reply)}”</div>` : ""}
-        </div>`;
-      })
-      .join("");
+    convRows = await fetch("/api/conversations").then((r) => r.json());
+    renderConversations();
   } catch {
     body.innerHTML = `<span class="dim">couldn't load</span>`;
   }
@@ -722,17 +752,32 @@ async function openGames() {
   body.innerHTML = "loading…";
   try {
     const games = await fetch("/api/games").then((r) => r.json());
+    const showing = world?.displayGameId || world?.latestGameId || 0;
     body.innerHTML = games.length
       ? games
           .map(
             (g) =>
-              `<div style="border-left:3px solid #7ad0a0;padding:4px 8px;background:#12161d;border-radius:4px">
-                <div style="color:#dfe4ee;font-size:12px"><b>${esc(g.title)}</b></div>
-                <div style="color:#8f98a8;font-size:11px;margin-top:2px">made day ${g.createdDay} · ${g.plays} plays</div>
+              `<div style="border-left:3px solid ${g.id === showing ? "#e0b45c" : "#7ad0a0"};padding:4px 8px;background:#12161d;border-radius:4px;display:flex;align-items:center;gap:8px">
+                <div style="flex:1">
+                  <div style="color:#dfe4ee;font-size:12px"><b>${esc(g.title)}</b>${g.id === showing ? ' <span style="color:#e0b45c">· on screen now</span>' : ""}</div>
+                  <div style="color:#8f98a8;font-size:11px;margin-top:2px">made day ${g.createdDay} · ${g.plays} plays</div>
+                </div>
+                ${g.id === showing ? "" : `<button data-play="${g.id}" style="background:#1f2530;border:1px solid #3d4655;color:#dfe4ee;border-radius:6px;padding:4px 10px;cursor:pointer;font:inherit;font-size:11px">▶ play this</button>`}
               </div>`,
           )
           .join("")
       : `<span class="dim">nothing made yet — needs coding 10</span>`;
+    for (const b of body.querySelectorAll("button[data-play]")) {
+      b.addEventListener("click", async () => {
+        b.textContent = "…";
+        try {
+          await fetch(`/api/games/${b.dataset.play}/play`, { method: "POST" });
+          openGames();
+        } catch {
+          b.textContent = "couldn't switch";
+        }
+      });
+    }
   } catch {
     body.innerHTML = `<span class="dim">couldn't load</span>`;
   }
@@ -793,6 +838,17 @@ $("guest-send")?.addEventListener("click", async () => {
 });
 $("shop-btn").addEventListener("click", openShop);
 $("gamecodebtn").addEventListener("click", openGameCode);
+$("restartbtn").addEventListener("click", () => {
+  const gf = cells.game.host.querySelector(".game-frame");
+  if (!gf) return;
+  try {
+    gf.contentWindow.location.reload(); // same-origin — a clean re-run if a kernel got stuck
+  } catch {
+    const src = gf.getAttribute("src") || "";
+    gf.src = "about:blank";
+    requestAnimationFrame(() => (gf.src = src));
+  }
+});
 $("followbtn").addEventListener("click", () => {
   ui.follow = !ui.follow;
   safeLS("simyou_follow", ui.follow ? "1" : "0");

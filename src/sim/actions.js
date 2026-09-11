@@ -11,10 +11,10 @@ export const ACTIONS = [
   },
   {
     id: "eat",
-    label: "make something to eat",
-    gerund: "eating",
+    label: "cook something to eat",
+    gerund: "cooking",
     room: "kitchen",
-    effect: { energy: 6.0, focus: 1.0, social: -0.1 },
+    effect: { hunger: 5.5, energy: 2.5, focus: 1.0, social: -0.1 },
     duration: [5, 10],
     weight: 1,
   },

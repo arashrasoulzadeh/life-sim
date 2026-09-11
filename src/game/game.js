@@ -1246,6 +1246,239 @@
     });
   };
 
+  KERNEL_FN.whack = function (p) {
+    var grid = intn(p.grid, 3, 2, 5);
+    var rate = num(p.rate, 1, 0.4, 2.5);
+    var upTime = num(p.up, 0.9, 0.4, 2) * 1000;
+    var hue = num(p.hue, 130, 0, 360);
+    var cells = [];
+    for (var i = 0; i < grid * grid; i++) cells.push({ up: false, t: 0 });
+    var score = 0, acc = 0;
+    loop(function (dt) {
+      acc += dt;
+      var interval = 1400 / rate;
+      if (acc > interval) {
+        acc = 0;
+        var idle = [];
+        for (var k = 0; k < cells.length; k++) if (!cells[k].up) idle.push(k);
+        if (idle.length) {
+          var pick = idle[(Math.random() * idle.length) | 0];
+          cells[pick].up = true;
+          cells[pick].t = upTime;
+        }
+      }
+      var cw = W / grid, ch = H / grid;
+      var taps = takeTaps();
+      for (var ti = 0; ti < taps.length; ti++) {
+        var tc = Math.floor(taps[ti].x / cw), tr = Math.floor(taps[ti].y / ch);
+        var idx = tr * grid + tc;
+        if (cells[idx] && cells[idx].up) { cells[idx].up = false; cells[idx].t = 0; score++; }
+      }
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      for (var c = 0; c < cells.length; c++) {
+        var cx = c % grid, cy = (c / grid) | 0;
+        var x = cx * cw, y = cy * ch;
+        ctx.strokeStyle = "rgba(255,255,255,0.08)";
+        ctx.strokeRect(x + 2, y + 2, cw - 4, ch - 4);
+        if (cells[c].up) {
+          cells[c].t -= dt;
+          if (cells[c].t <= 0) cells[c].up = false;
+          var r = Math.min(cw, ch) * 0.3;
+          ctx.fillStyle = "hsl(" + hue + " 65% 58%)";
+          ctx.beginPath();
+          ctx.arc(x + cw / 2, y + ch / 2, r, 0, 6.29);
+          ctx.fill();
+        }
+      }
+      ctx.fillStyle = "#5f6675";
+      ctx.font = "10px ui-monospace, monospace";
+      ctx.fillText("score " + score, 8, 14);
+    });
+  };
+
+  KERNEL_FN.runner = function (p) {
+    var speed = num(p.speed, 1.4, 0.6, 3);
+    var gap = num(p.gap, 1, 0.6, 2);
+    var hue = num(p.hue, 20, 0, 360);
+    var groundY, px, py, vy, onGround, obstacles, spawnAcc, score, dead, deadT;
+    function reset() {
+      groundY = H - 20;
+      px = W * 0.22;
+      py = groundY;
+      vy = 0;
+      onGround = true;
+      obstacles = [];
+      spawnAcc = 0;
+      score = 0;
+      dead = false;
+      deadT = 0;
+    }
+    reset();
+    loop(function (dt) {
+      var taps = takeTaps();
+      var wantJump = taps.length > 0 || input.burst;
+      input.burst = 0;
+      if (dead) {
+        deadT += dt;
+        if (wantJump || deadT > 1200) reset();
+      } else {
+        if (wantJump && onGround) { vy = -6.6; onGround = false; }
+        vy += 0.32 * (dt / 16);
+        py += vy * (dt / 16);
+        if (py >= groundY) { py = groundY; vy = 0; onGround = true; }
+        spawnAcc += dt;
+        var interval = 1300 / (speed * gap);
+        if (spawnAcc > interval) { spawnAcc = 0; obstacles.push({ x: W + 10, h: 14 + Math.random() * 16 }); }
+        for (var i = obstacles.length - 1; i >= 0; i--) {
+          obstacles[i].x -= speed * (dt / 16) * 3.2;
+          if (obstacles[i].x < -10) { obstacles.splice(i, 1); score++; continue; }
+          var ox = obstacles[i].x, oh = obstacles[i].h;
+          if (Math.abs(ox - px) < 9 && py > groundY - oh + 6) { dead = true; deadT = 0; }
+        }
+      }
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = "rgba(255,255,255,0.15)";
+      ctx.beginPath();
+      ctx.moveTo(0, groundY + 8);
+      ctx.lineTo(W, groundY + 8);
+      ctx.stroke();
+      ctx.fillStyle = dead ? "#e06a5c" : "hsl(" + hue + " 70% 60%)";
+      ctx.fillRect(px - 6, py - 12, 12, 12);
+      ctx.fillStyle = "hsl(" + (hue + 30) + " 55% 45%)";
+      for (var j = 0; j < obstacles.length; j++) {
+        ctx.fillRect(obstacles[j].x - 4, groundY + 8 - obstacles[j].h, 8, obstacles[j].h);
+      }
+      ctx.fillStyle = "#5f6675";
+      ctx.font = "10px ui-monospace, monospace";
+      ctx.fillText(dead ? "score " + score + " — tap to try again" : "score " + score, 8, 14);
+    });
+  };
+
+  KERNEL_FN.match = function (p) {
+    var pairs = intn(p.pairs, 6, 3, 10);
+    var hue = num(p.hue, 260, 0, 360);
+    var hue2 = num(p.hue2, 40, 0, 360);
+    var cols, rows, tiles, flipped, busy, busyT, score;
+    function shuffle(arr) {
+      for (var i = arr.length - 1; i > 0; i--) {
+        var j = (Math.random() * (i + 1)) | 0;
+        var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+      }
+      return arr;
+    }
+    function reset() {
+      var n = pairs * 2;
+      cols = Math.ceil(Math.sqrt(n * (W / H)));
+      cols = Math.max(2, Math.min(n, cols));
+      rows = Math.ceil(n / cols);
+      var ids = [];
+      for (var i = 0; i < pairs; i++) { ids.push(i); ids.push(i); }
+      shuffle(ids);
+      tiles = ids.slice(0, cols * rows).map(function (id) { return { id: id, up: false, matched: false }; });
+      flipped = [];
+      busy = false;
+      busyT = 0;
+      score = 0;
+    }
+    reset();
+    loop(function (dt) {
+      var cw = W / cols, ch = H / rows;
+      if (busy) {
+        busyT -= dt;
+        if (busyT <= 0) {
+          busy = false;
+          for (var f = 0; f < flipped.length; f++) if (!tiles[flipped[f]].matched) tiles[flipped[f]].up = false;
+          flipped = [];
+        }
+      } else {
+        var taps = takeTaps();
+        for (var ti = 0; ti < taps.length; ti++) {
+          var tc = Math.floor(taps[ti].x / cw), tr = Math.floor(taps[ti].y / ch);
+          var idx = tr * cols + tc;
+          var tile = tiles[idx];
+          if (!tile || tile.up || tile.matched || flipped.length >= 2) continue;
+          tile.up = true;
+          flipped.push(idx);
+          if (flipped.length === 2) {
+            if (tiles[flipped[0]].id === tiles[flipped[1]].id) {
+              tiles[flipped[0]].matched = true;
+              tiles[flipped[1]].matched = true;
+              flipped = [];
+              score++;
+              if (tiles.every(function (t) { return t.matched; })) setTimeout(reset, 700);
+            } else {
+              busy = true;
+              busyT = 650;
+            }
+          }
+        }
+      }
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      for (var c = 0; c < tiles.length; c++) {
+        var cx = c % cols, cy = (c / cols) | 0;
+        var x = cx * cw, y = cy * ch;
+        var t2 = tiles[c];
+        if (t2.matched) ctx.fillStyle = "hsl(" + hue2 + " 55% 30%)";
+        else if (t2.up) ctx.fillStyle = "hsl(" + (hue + (t2.id * 37) % 120) + " 65% 55%)";
+        else ctx.fillStyle = "#1c2230";
+        ctx.fillRect(x + 2, y + 2, cw - 4, ch - 4);
+      }
+      ctx.fillStyle = "#5f6675";
+      ctx.font = "10px ui-monospace, monospace";
+      ctx.fillText("pairs found " + score + "/" + pairs, 8, 14);
+    });
+  };
+
+  KERNEL_FN.shooter = function (p) {
+    var rate = num(p.rate, 1, 0.4, 2.5);
+    var speed = num(p.speed, 1, 0.4, 2.5);
+    var hue = num(p.hue, 350, 0, 360);
+    var targets = [], flashes = [], spawnAcc = 0, score = 0, misses = 0;
+    loop(function (dt) {
+      spawnAcc += dt;
+      var interval = 1100 / rate;
+      if (spawnAcc > interval) { spawnAcc = 0; targets.push({ x: 12 + Math.random() * (W - 24), y: -6, v: (0.6 + Math.random() * 0.8) * speed }); }
+      var taps = takeTaps();
+      for (var ti = 0; ti < taps.length; ti++) {
+        var tx = taps[ti].x;
+        var best = -1, bestD = 26;
+        for (var i = 0; i < targets.length; i++) {
+          var d = Math.abs(targets[i].x - tx);
+          if (d < bestD) { bestD = d; best = i; }
+        }
+        flashes.push({ x: tx, t: 140 });
+        if (best >= 0) { targets.splice(best, 1); score++; }
+      }
+      for (var j = targets.length - 1; j >= 0; j--) {
+        targets[j].y += targets[j].v * (dt / 16) * 2.4;
+        if (targets[j].y > H + 10) { targets.splice(j, 1); misses++; }
+      }
+      ctx.fillStyle = "#05070a";
+      ctx.fillRect(0, 0, W, H);
+      for (var k = 0; k < targets.length; k++) {
+        ctx.fillStyle = "hsl(" + hue + " 70% 58%)";
+        ctx.beginPath();
+        ctx.arc(targets[k].x, targets[k].y, 6, 0, 6.29);
+        ctx.fill();
+      }
+      for (var m = flashes.length - 1; m >= 0; m--) {
+        flashes[m].t -= dt;
+        if (flashes[m].t <= 0) { flashes.splice(m, 1); continue; }
+        ctx.strokeStyle = "rgba(255,255,255," + (flashes[m].t / 140) + ")";
+        ctx.beginPath();
+        ctx.moveTo(flashes[m].x, H);
+        ctx.lineTo(flashes[m].x, 0);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#5f6675";
+      ctx.font = "10px ui-monospace, monospace";
+      ctx.fillText("hits " + score + "  missed " + misses, 8, 14);
+    });
+  };
+
   var running = false;
   function loop(fn) {
     if (running) return; // one kernel at a time

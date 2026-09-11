@@ -195,6 +195,7 @@ export function buildPrompt(w, phase, ctx = {}) {
     writeLine,
     `Bank ${Math.round(w.bank)}c. Yesterday earned ${Math.round(w.incomeYesterday)}, spent ${Math.round(w.expensesYesterday)}.`,
     `${phase === "morning" ? "Yesterday" : "Today"}: ${t.resolved} requests done, lowest focus ${Math.round(t.minFocus)}, lowest social ${Math.round(t.minSocial)}, ${t.windowEvents} things at the window.`,
+    `${phase === "morning" ? `Meals yesterday: ${w.mealsYesterday || 0}/3.` : `Meals so far today: ${w.mealsToday || 0}/3.`}${w.mealsYesterday === 0 && phase === "morning" ? " Didn't eat at all — the kitchen needs more attention." : ""}`,
     dreamLine,
     notesLine,
     "Rooms:",

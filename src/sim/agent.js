@@ -1,5 +1,5 @@
 import { ACTIONS } from "./actions.js";
-import { applyEffect, pressure } from "./needs.js";
+import { applyEffect, pressure, freshNeeds } from "./needs.js";
 import { ROOMS } from "./rooms.js";
 import { freshSkills } from "./skills.js";
 
@@ -35,7 +35,7 @@ export function makeAgent(rng, opts = {}) {
     name: opts.name || "",
     gender: opts.gender || "n",
     skills: freshSkills(),
-    needs: { focus: 70, energy: 80, social: 55, curiosity: 60 },
+    needs: freshNeeds(),
     room: "bed",
     x: spot.x + off,
     y: spot.y,
@@ -239,10 +239,14 @@ export function stepAgent(agent, dt, env, rng) {
     const dx = agent.tx - agent.x;
     const dy = agent.ty - agent.y;
     const dist = Math.hypot(dx, dy);
-    if (dist < 2) {
+    // a crowded room's personal-space push can fight this step forever —
+    // give up and snap there rather than freezing the whole action loop
+    agent._moveTimer = dist < 2 ? 0 : (agent._moveTimer ?? 0) + dt;
+    if (dist < 2 || agent._moveTimer > 6) {
       agent.x = agent.tx;
       agent.y = agent.ty;
       agent.moving = false;
+      agent._moveTimer = 0;
     } else {
       const step = Math.min(dist, walkSpeed * dt);
       agent.x += (dx / dist) * step;
@@ -267,6 +271,7 @@ export function stepAgent(agent, dt, env, rng) {
     if (agent.action.id === "reflect") onReflect();
     if (agent.action.id === "water" && env.onWater) env.onWater(agent.room);
     if (agent.action.id === "tinker" && env.onTinker) env.onTinker(agent.room);
+    if (agent.action.id === "eat" && env.onEat) env.onEat(agent.room);
   }
 
   // decide what to do next
@@ -298,7 +303,7 @@ export function stepAgent(agent, dt, env, rng) {
 function thoughtFor(agent, a, isNight, reqs) {
   const n = agent.needs;
   if (a.id === "sleep") return isNight ? "so tired... bed" : "just a short nap";
-  if (a.id === "eat") return n.energy < 25 ? "starving. kitchen, now" : "a snack sounds good";
+  if (a.id === "eat") return n.hunger < 25 ? "starving. kitchen, now" : "time to cook something";
   if (a.id === "work") return reqs > 0 ? `${reqs} waiting — back to the desk` : "tidying up some notes";
   if (a.id === "gaze") return n.curiosity < 25 ? "need to see something new" : "what's out there today";
   if (a.id === "chat") return n.social < 25 ? "it's been quiet. reaching out" : "wonder how the others are";
