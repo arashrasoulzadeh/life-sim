@@ -19,6 +19,37 @@ const SLOTS = [
 ];
 export const OBJECT_SLOTS = SLOTS;
 
+// which of the slots above sit up on the wall (y:96) vs on the floor/counter —
+// used so wall-mounted items don't end up floating in the middle of the room
+const WALL_SLOT_IDX = SLOTS.map((s, i) => (s.y <= 100 ? i : -1)).filter((i) => i >= 0);
+const FLOOR_SLOT_IDX = SLOTS.map((s, i) => (s.y > 100 ? i : -1)).filter((i) => i >= 0);
+
+// things that read as hung-on-the-wall rather than sitting/standing on the floor
+const WALL_WORDS = /clock|mirror|calendar|frame|curtain|board|sign|shelf|hook|light bar|poster|map|trophy|diploma|certificate/i;
+
+// deterministic per-object placement: wall-ish items claim wall slots, then
+// everything is packed into the room's slot rows in a stable order (by id, so
+// a given object always lands in the same spot instead of jumping around
+// whenever the room's item list is edited elsewhere)
+function assignSlots(objects) {
+  const order = objects
+    .map((id, i) => ({ id, i }))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const wallQueue = [...WALL_SLOT_IDX];
+  const floorQueue = [...FLOOR_SLOT_IDX];
+  const out = new Array(objects.length);
+  for (const { id, i } of order) {
+    const wallLike = WALL_WORDS.test(OBJECTS[id]?.label || id);
+    let idx;
+    if (wallLike && wallQueue.length) idx = wallQueue.shift();
+    else if (floorQueue.length) idx = floorQueue.shift();
+    else if (wallQueue.length) idx = wallQueue.shift();
+    else idx = i % SLOTS.length; // every slot taken — wrap, still stable per id
+    out[i] = SLOTS[idx];
+  }
+  return out;
+}
+
 // `f` is the room's furniture colour (AI-settable via restyle.furn, default per
 // room). The big surfaces read `var(--furn)`; screens / linens keep their own.
 const FURNITURE = {
@@ -49,10 +80,10 @@ function esc(s) {
   return String(s).replace(/[<>"&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", '"': "&quot;", "&": "&amp;" })[c]);
 }
 
-export function objHtml(id, slot, roomId, plants, wear, names, art) {
+export function objHtml(id, point, roomId, plants, wear, names, art) {
   const o = OBJECTS[id];
   if (!o) return "";
-  const p = SLOTS[slot % SLOTS.length];
+  const p = point || SLOTS[0];
   const x = ((p.x / 512) * 100).toFixed(2);
   const y = ((p.y / 448) * 100).toFixed(2);
   const nick = names && typeof names[id] === "string" ? names[id] : "";
@@ -109,13 +140,14 @@ function winFurn(art) {
 export function roomHtml(roomId, objects, style, plants, wear, windowArt, art, couchArt) {
   const st = roomStyle(roomId, style);
   const p = st.palette;
+  const points = assignSlots(objects);
   return (
     `<div class="room" data-room="${roomId}" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent};--furn:${st.furn}">` +
     `<div class="wall" data-pattern="${st.pattern}"></div><div class="floor" data-pattern="${st.floor}"></div>` +
     lightLayer(st.light) +
     (roomId === "window" ? winFurn(windowArt) : FURNITURE[roomId] || "") +
     (roomId === "couch" ? paintingsHtml(couchArt) : "") +
-    objects.map((id, i) => objHtml(id, i, roomId, plants, wear, st.names, art)).join("") +
+    objects.map((id, i) => objHtml(id, points[i], roomId, plants, wear, st.names, art)).join("") +
     (st.sign ? `<span class="room-sign">${esc(st.sign)}</span>` : "") +
     `<span class="room-tag">${esc(st.name)}</span>` +
     "</div>"
@@ -123,11 +155,12 @@ export function roomHtml(roomId, objects, style, plants, wear, windowArt, art, c
 }
 
 export function objectsMeta(roomId, objects, objDay, plants, wear, names, keepsake, art) {
+  const points = assignSlots(objects);
   return objects
     .map((id, i) => {
       const o = OBJECTS[id];
       if (!o) return null;
-      const p = SLOTS[i % SLOTS.length];
+      const p = points[i];
       return {
         id,
         label: o.label,

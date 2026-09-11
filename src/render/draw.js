@@ -501,7 +501,7 @@ function drawAgent(ctx, w, agent = w.agent) {
   }
 }
 
-const MICRO_GLYPH = { stretch: "↑", glance: "👀", sip: "☕", hum: "♪", shift: "≈", yawn: "~", tidy: "✦" };
+const MICRO_GLYPH = { stretch: "↑", glance: "👀", sip: "☕", hum: "♪", shift: "≈", yawn: "~", tidy: "✦", cheer: "🙌", point: "👉", laugh: "😄" };
 
 function drawPet(ctx, w, scaleHint = 1) {
   const p = w.pet;

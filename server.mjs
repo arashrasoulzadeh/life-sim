@@ -19,6 +19,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createWorld, tick, drainFx, DAY_LENGTH, START_BANK } from "./src/sim/world.js";
 import { buildPrompt, applyMorning, applyEvening, stubDialogue } from "./src/sim/dialogue.js";
 import { rainIntensity } from "./src/sim/weather.js";
+import { findSpeechMoment, tickSpeechCooldown, buildSpeechPrompt, applySpeech, speechDayKey, SPEECH_DAILY_CAP } from "./src/sim/speech.js";
 import { roomDoc, initDocs } from "./src/sim/roomrender.js";
 import { goalFrac } from "./src/sim/goals.js";
 import { canWrite, weaveWriting } from "./src/sim/writing.js";
@@ -514,6 +515,29 @@ function finishDialogue(phase, r) {
   }
 }
 
+// ---------- ambient speech (residents talking, real-day rate limited) ----------
+let speechBusy = false;
+let speechBudget = { day: speechDayKey(), count: 0 };
+async function maybeSpeak() {
+  if (speechBusy || dialogueBusy || !DIALOGUE_ON || !GAP_KEY) return;
+  const today = speechDayKey();
+  if (speechBudget.day !== today) speechBudget = { day: today, count: 0 };
+  if (speechBudget.count >= SPEECH_DAILY_CAP) return;
+  const moment = findSpeechMoment(world);
+  if (!moment) return;
+  speechBusy = true;
+  try {
+    const { system, user } = buildSpeechPrompt(world, moment.a, moment.b, moment.room, moment.interactive);
+    const resp = await Gap.chatJSON(system, user, { meta: { phase: "chat", day: world.day, seed: SEED }, temperature: 0.9 });
+    const said = applySpeech(world, moment.a, moment.b, resp);
+    if (said) speechBudget.count++;
+  } catch (e) {
+    console.error("[simyou] speech:", e.message);
+  } finally {
+    speechBusy = false;
+  }
+}
+
 function setQuote(txt) {
   const q = String(txt).slice(0, 150);
   world.quote = { text: q, day: world.day };
@@ -839,6 +863,8 @@ setInterval(() => {
     world.dialogueRequest = null;
     runDialogue(phase);
   }
+
+  if (tickSpeechCooldown(world, FIXED_DT * steps, world.rng)) maybeSpeak();
 
   const fx = drainFx(world);
   if (fx) for (const t of fx) fxTail.push({ n: ++fxSeq, t });

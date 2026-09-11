@@ -3,7 +3,8 @@ import { makeAgent, stepAgent, stepRoutine } from "./agent.js";
 import { decayNeeds } from "./needs.js";
 import { freshMemory, writeMemory, ageMemory } from "./memory.js";
 import { freshMood, updateMood } from "./mood.js";
-import { freshWeather, stepWeather, weatherCuriosity, rainIntensity } from "./weather.js";
+import { freshWeather, stepWeather, rollWeather, weatherCuriosity, weatherMoodPull, rainIntensity } from "./weather.js";
+import { decaySpeech } from "./speech.js";
 import { eraFor } from "./eras.js";
 import { applyEffect } from "./needs.js";
 import { OBJECTS, DEFAULT_OBJECTS } from "./objects.js";
@@ -137,9 +138,7 @@ export function tick(w, dt) {
   w.era = eraFor(w.day);
   if (w.era !== prevEra) w.fx.push("era");
 
-  if (stepWeather(w, dt, w.rng)) {
-    /* sky changed — no sound, it's ambient */
-  }
+  stepWeather(w, dt, w.rng);
   stepOutside(w, w.rng);
 
   // requests arrive on their own; a poor reputation slows the stream
@@ -209,10 +208,17 @@ export function tick(w, dt) {
   const moodBias = (rm.moodBias || 0) + (em.mood || 0);
   if (moodBias) w.mood.valence = Math.max(-1, Math.min(1, w.mood.valence + moodBias * dt));
 
-  // weather pulls on curiosity while the agent is actually at the window
+  // weather pulls on curiosity while the agent is actually at the window,
+  // and leans gently on everyone's mood all day, wherever they are
   if (w.agent.room === "window") {
     w.agent.needs.curiosity = clamp100(w.agent.needs.curiosity + weatherCuriosity(w.weather.sky) * dt);
   }
+  const wPull = weatherMoodPull(w.weather.sky) * dt;
+  if (wPull) w.mood.valence = Math.max(-1, Math.min(1, w.mood.valence + wPull));
+
+  // people together in the game room actually watch / play together — a
+  // small social + mood lift for everyone sharing it, plus a shared gesture
+  stepGameTogether(w, dt);
 
   // objects in the current room give a small lift while the agent is settled
   // there — scaled by how worn each one is (a broken thing gives nothing)
@@ -305,6 +311,7 @@ export function tick(w, dt) {
 
   updateMood(w.mood, w.agent.needs, dt);
   separatePeople(w);
+  decaySpeech([w.agent, w.partner, ...(w.extras || [])], dt);
 
   // daily tallies
   w.tally.minFocus = Math.min(w.tally.minFocus, w.agent.needs.focus);
@@ -341,6 +348,31 @@ function separatePeople(w) {
   }
 }
 
+// when 2+ settled people share the game room, they're actually playing /
+// watching together — a small shared lift, and an occasional reaction emote
+const GAME_MICROS = ["cheer", "point", "laugh"];
+function stepGameTogether(w, dt) {
+  if (w.isNight) return;
+  const here = [w.agent, w.partner, ...(w.extras || [])].filter(
+    (p) => p && p.room === "game" && p.transit <= 0 && !p.moving,
+  );
+  for (const p of here) {
+    p.needs.social = clamp100(p.needs.social + 3.2 * dt);
+    if (p.micro) {
+      p.micro.ttl -= dt;
+      if (p.micro.ttl <= 0) p.micro = null;
+    }
+  }
+  if (here.length < 2) return;
+  w.mood.valence = Math.max(-1, Math.min(1, w.mood.valence + 0.01 * dt));
+  w._gameTogether = (w._gameTogether ?? w.rng.range(3, 7)) - dt;
+  if (w._gameTogether <= 0) {
+    w._gameTogether = w.rng.range(6, 14);
+    const p = w.rng.pick(here);
+    if (!p.micro) p.micro = { kind: w.rng.pick(GAME_MICROS), ttl: w.rng.range(1.4, 2.6) };
+  }
+}
+
 export function drainFx(w) {
   if (w.fx.length === 0) return null;
   const out = w.fx;
@@ -356,6 +388,7 @@ function onNewDay(w) {
   ageMemory(w.memory);
   rollRhythm(w, w.rng);
   rollPsyche(w, w.rng);
+  rollWeather(w, w.rng); // the sky turns over daily, leaning on yesterday's mood
 
   // the light through the window shifts on its own every few days (the AI can
   // still hang its own piece in the evening review, which stamps a fresh day)
