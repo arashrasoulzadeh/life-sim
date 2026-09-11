@@ -10,11 +10,16 @@ import { windowArtCss } from "./windowart.js";
 import { artToSvg } from "./itemart.js";
 import { paintingsHtml } from "./paintings.js";
 
-// slot coordinates in the 512x448 playfield — a candidate grid over the floor,
-// plus a row up on the bare wall for rooms that actually have one clear of
-// their big furniture piece (kept for anything importing the old export)
-const FLOOR_GRID = [296, 340, 384].flatMap((y) => [70, 140, 210, 280, 350, 420].map((x) => ({ x, y })));
-const WALL_GRID = [{ x: 80, y: 100 }, { x: 160, y: 100 }, { x: 340, y: 100 }, { x: 420, y: 100 }];
+// slot coordinates in the 512x448 playfield — a dense candidate grid over the
+// floor (packed tighter than the icons need, so even a fully-stocked room —
+// the marketplace holds up to ~43 items per room — still has a free slot for
+// every one of them without two ever landing on the same spot), plus a row
+// up on the bare wall for rooms that actually have one clear of their big
+// furniture piece
+const FLOOR_GRID = [242, 272, 302, 332, 362, 392].flatMap((y) =>
+  [56, 100, 144, 188, 232, 276, 320, 364, 408, 452].map((x) => ({ x, y })),
+);
+const WALL_GRID = [92, 128].flatMap((y) => [70, 130, 190, 330, 390, 450].map((x) => ({ x, y })));
 export const OBJECT_SLOTS = FLOOR_GRID;
 
 // each room's big furniture piece(s), in px on the 512x448 playfield — the
