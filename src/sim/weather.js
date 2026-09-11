@@ -15,7 +15,7 @@ const NEXT = {
 };
 
 export function freshWeather(rng) {
-  return { sky: "clouds", flash: 0, day: 0 };
+  return { sky: "clouds", flash: 0, day: 0, history: [] };
 }
 
 // per-tick upkeep: only the storm flash animates continuously now
@@ -35,6 +35,7 @@ export function rollWeather(w, rng) {
   else if (valence < -0.3) options = options.concat(["rain", "storm"]);
   weather.sky = rng.pick(options);
   weather.day = w.day;
+  weather.history = [...(weather.history || []), { day: w.day, sky: weather.sky, valence: +valence.toFixed(2) }].slice(-20);
   return true;
 }
 

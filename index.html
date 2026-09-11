@@ -324,6 +324,9 @@
           <button id="vote-btn">vote</button>
           <button id="guest-btn">guestbook</button>
           <button id="shop-btn">shop</button>
+          <button id="conversations-btn">conversations</button>
+          <button id="games-btn">games</button>
+          <button id="weather-btn">weather</button>
         </span>
         <span class="grp">
           <button id="about-btn" title="what is this?">?</button>
@@ -399,6 +402,27 @@
       <h2>WHO LIVES HERE</h2>
       <div id="people-body">…</div>
       <button class="close" id="people-close">close</button>
+    </dialog>
+
+    <dialog id="conversations">
+      <h2>CONVERSATIONS</h2>
+      <p style="color:#7f8a9c;font-size:12px">Morning &amp; evening reviews, plus short lines residents exchange in passing (AI-written, capped to 10 a real day).</p>
+      <div id="conversations-body" style="display:flex;flex-direction:column;gap:6px;max-height:56vh;overflow:auto"></div>
+      <button class="close" id="conversations-close">close</button>
+    </dialog>
+
+    <dialog id="games">
+      <h2>GAMES MADE</h2>
+      <p style="color:#7f8a9c;font-size:12px">Every game it has commissioned for the game-room monitor — a kernel + settings, never written code.</p>
+      <div id="games-body" style="display:flex;flex-direction:column;gap:6px;max-height:56vh;overflow:auto"></div>
+      <button class="close" id="games-close">close</button>
+    </dialog>
+
+    <dialog id="weather">
+      <h2>WEATHER</h2>
+      <p style="color:#7f8a9c;font-size:12px">The sky turns over once a day and leans on how the mood's been — good stretches skew clear/gold, bad ones rain/storm.</p>
+      <div id="weather-body">…</div>
+      <button class="close" id="weather-close">close</button>
     </dialog>
 
     <dialog id="guest">

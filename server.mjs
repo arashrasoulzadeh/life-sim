@@ -359,6 +359,9 @@ function restore(seed, json) {
   }
   if (!w.agent.look) w.agent.look = { skin: "#f0d9b8", shirt: "#dfe3ea", visor: "#3a4a8a" };
   if (!w.memory.overflow) w.memory.overflow = [];
+  if (!w.weather || typeof w.weather !== "object") w.weather = { sky: "clouds", flash: 0, day: w.day, history: [] };
+  if (!("day" in w.weather)) w.weather.day = w.day;
+  if (!Array.isArray(w.weather.history)) w.weather.history = [];
   if (!w.roomDocs || Object.keys(w.roomDocs).length < ROOM_IDS.length) initDocs(w);
   return w;
 }
@@ -530,7 +533,17 @@ async function maybeSpeak() {
     const { system, user } = buildSpeechPrompt(world, moment.a, moment.b, moment.room, moment.interactive);
     const resp = await Gap.chatJSON(system, user, { meta: { phase: "chat", day: world.day, seed: SEED }, temperature: 0.9 });
     const said = applySpeech(world, moment.a, moment.b, resp);
-    if (said) speechBudget.count++;
+    if (said) {
+      speechBudget.count++;
+      try {
+        Q.convIns.run(
+          String(SEED), world.day, "chat", "gapgpt", said.line, "",
+          JSON.stringify([`👥 ${said.speaker} · ${said.room}`]), new Date().toISOString(),
+        );
+      } catch (e2) {
+        console.error("[simyou] speech persist:", e2.message);
+      }
+    }
   } catch (e) {
     console.error("[simyou] speech:", e.message);
   } finally {
@@ -1207,6 +1220,16 @@ const server = createServer(async (req, res) => {
     );
   }
   if (path === "/api/games") return sendJSON(res, JSON.stringify(Q.gameList.all(String(SEED)).map((g) => ({ id: g.id, title: g.title, createdDay: g.created_day, plays: g.plays }))));
+
+  if (path === "/api/weather") {
+    return sendJSON(res, JSON.stringify({
+      sky: world.weather.sky,
+      day: world.weather.day,
+      season: world.outside?.season || "spring",
+      valence: +world.mood.valence.toFixed(2),
+      history: world.weather.history || [],
+    }));
+  }
 
   const gapi = path.match(/^\/api\/games\/(\d{1,9})$/);
   if (gapi) {

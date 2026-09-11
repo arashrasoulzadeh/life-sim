@@ -341,7 +341,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // ---------- panels ----------
-const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo"), guest: $("guest"), vote: $("vote"), journal: $("journal"), memories: $("memories"), people: $("people") };
+const dlgs = { about: $("about"), econ: $("econ"), gamecode: $("gamecode"), shop: $("shop"), objinfo: $("objinfo"), guest: $("guest"), vote: $("vote"), journal: $("journal"), memories: $("memories"), people: $("people"), conversations: $("conversations"), games: $("games"), weather: $("weather") };
 $("about-btn").addEventListener("click", () => dlgs.about.showModal());
 for (const id of Object.keys(dlgs)) {
   if (!dlgs[id]) continue;
@@ -687,11 +687,87 @@ async function openPeople() {
     body.innerHTML = `<span class="dim">couldn't load</span>`;
   }
 }
+const PHASE_TAG = { morning: "☀ morning", evening: "☾ evening", chat: "💬 chat" };
+async function openConversations() {
+  dlgs.conversations.showModal();
+  const body = $("conversations-body");
+  body.innerHTML = "loading…";
+  try {
+    const rows = await fetch("/api/conversations").then((r) => r.json());
+    if (!rows.length) {
+      body.innerHTML = `<span class="dim">nothing yet</span>`;
+      return;
+    }
+    body.innerHTML = rows
+      .slice()
+      .reverse()
+      .slice(0, 80)
+      .map((r) => {
+        const speakTag = (r.changes || []).find((c) => c.startsWith("👥 "));
+        const who = r.phase === "chat" && speakTag ? speakTag.slice(2) : r.phase === "morning" ? "you, at dawn" : r.phase === "evening" ? "you, at dusk" : "";
+        return `<div style="border-left:3px solid ${r.phase === "chat" ? "#8fb8e8" : "#7ad0a0"};padding:4px 8px;background:#12161d;border-radius:4px">
+          <div style="color:#5f6675;font-size:10px">day ${r.day} · ${PHASE_TAG[r.phase] || r.phase}${who ? ` · ${esc(who)}` : ""} · ${r.source || ""}</div>
+          <div style="color:#dfe4ee;font-size:12px;margin-top:2px">${esc(r.line || "")}</div>
+          ${r.reply ? `<div style="color:#8f98a8;font-size:11px;margin-top:2px">“${esc(r.reply)}”</div>` : ""}
+        </div>`;
+      })
+      .join("");
+  } catch {
+    body.innerHTML = `<span class="dim">couldn't load</span>`;
+  }
+}
+async function openGames() {
+  dlgs.games.showModal();
+  const body = $("games-body");
+  body.innerHTML = "loading…";
+  try {
+    const games = await fetch("/api/games").then((r) => r.json());
+    body.innerHTML = games.length
+      ? games
+          .map(
+            (g) =>
+              `<div style="border-left:3px solid #7ad0a0;padding:4px 8px;background:#12161d;border-radius:4px">
+                <div style="color:#dfe4ee;font-size:12px"><b>${esc(g.title)}</b></div>
+                <div style="color:#8f98a8;font-size:11px;margin-top:2px">made day ${g.createdDay} · ${g.plays} plays</div>
+              </div>`,
+          )
+          .join("")
+      : `<span class="dim">nothing made yet — needs coding 10</span>`;
+  } catch {
+    body.innerHTML = `<span class="dim">couldn't load</span>`;
+  }
+}
+const SKY_GLYPH = { clear: "☀️", clouds: "☁️", rain: "🌧️", storm: "⛈️", gold: "🌇" };
+async function openWeather() {
+  dlgs.weather.showModal();
+  const body = $("weather-body");
+  body.textContent = "loading…";
+  try {
+    const d = await fetch("/api/weather").then((r) => r.json());
+    const hist = (d.history || [])
+      .slice()
+      .reverse()
+      .map((h) => `  day ${h.day}  ${SKY_GLYPH[h.sky] || "·"} ${h.sky.padEnd(7)} (mood was ${h.valence >= 0 ? "+" : ""}${h.valence})`)
+      .join("\n");
+    body.innerHTML = `<pre style="white-space:pre-wrap;margin:0">${esc(
+      [
+        `today: ${SKY_GLYPH[d.sky] || ""} ${d.sky}, since day ${d.day} · ${d.season} · mood ${d.valence >= 0 ? "+" : ""}${d.valence}`,
+        "",
+        hist ? "RECENT DAYS\n" + hist : "(no history yet — turns over at dawn)",
+      ].join("\n"),
+    )}</pre>`;
+  } catch {
+    body.textContent = "couldn't load";
+  }
+}
 $("people-btn")?.addEventListener("click", openPeople);
 $("mem-btn")?.addEventListener("click", openMemories);
 $("journal-btn")?.addEventListener("click", openJournal);
 $("vote-btn")?.addEventListener("click", openVote);
 $("guest-btn")?.addEventListener("click", openGuest);
+$("conversations-btn")?.addEventListener("click", openConversations);
+$("games-btn")?.addEventListener("click", openGames);
+$("weather-btn")?.addEventListener("click", openWeather);
 $("guest-send")?.addEventListener("click", async () => {
   const text = $("guest-text").value.trim();
   const name = $("guest-name").value.trim();
