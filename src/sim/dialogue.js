@@ -26,6 +26,7 @@ import { ART_STYLES, cleanWindowArt, windowArtLabel } from "./windowart.js";
 const VOTE_LABELS = { work: "work hard", rest: "rest & recover", social: "reach out to others", learn: "learn something", tend: "tend the home" };
 
 export const GAME_COST = 0; // making a game is free — it only costs the AI a decision
+export const ROOM_ITEM_CAP = 16; // a soft visual cap — past this a room reads as cluttered rather than furnished
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
 function clampTrait(v) {
@@ -113,6 +114,10 @@ export function buildPrompt(w, phase, ctx = {}) {
     }
   }
   const wearLine = worn.length ? `Worn / broken: ${worn.slice(0, 6).join("; ")}.` : "";
+  const crowded = Object.entries(w.rooms || {})
+    .filter(([, ids]) => ids.length >= ROOM_ITEM_CAP - 3)
+    .map(([r, ids]) => `${r} (${ids.length}/${ROOM_ITEM_CAP}${ids.length >= ROOM_ITEM_CAP ? ", full" : ""})`);
+  const crowdLine = crowded.length ? `Getting full: ${crowded.join(", ")} — sell something there before buying more for it.` : "";
   const writeLine = phase === "morning" && canWrite(w) ? `Your writing is ${Math.round(sk.writing || 0)} — you could write ${writingPrompt(w.rng)} today (fill "wrote").` : "";
 
   const commonRules = [
@@ -157,6 +162,7 @@ export function buildPrompt(w, phase, ctx = {}) {
         "The six rooms are fixed — you may rename and recolour them, never add / remove / merge them, and the desk monitor always stays (it is your income).",
         ...commonRules,
         `You have ${Math.round(w.bank)} coins. If the bank is over ~120 and something in the marketplace would make the home nicer or your day easier, BUY it (1-2 things) — a bare flat is a sad flat. Only skip buying when money is genuinely tight. Making a game is free, so make one whenever it feels right.`,
+        `Each room holds at most ${ROOM_ITEM_CAP} things before it reads as cluttered rather than furnished — a purchase for a full room is refused. If a room you want to shop for is near that, sell something you don't need there first (or just buy for a roomier room instead).`,
       ].join("\n")
     : [
         "You are the inner voice of SimYou, an AI assistant in a six-room apartment. This is the morning.",
@@ -192,6 +198,7 @@ export function buildPrompt(w, phase, ctx = {}) {
     moneyLine,
     conflictLine,
     wearLine,
+    crowdLine,
     writeLine,
     `Bank ${Math.round(w.bank)}c. Yesterday earned ${Math.round(w.incomeYesterday)}, spent ${Math.round(w.expensesYesterday)}.`,
     `${phase === "morning" ? "Yesterday" : "Today"}: ${t.resolved} requests done, lowest focus ${Math.round(t.minFocus)}, lowest social ${Math.round(t.minSocial)}, ${t.windowEvents} things at the window.`,
@@ -411,6 +418,10 @@ export function applyEvening(w, resp) {
     if (!o) continue;
     const room = o.room; // an item always goes to its own room
     if (!w.rooms[room] || w.rooms[room].includes(id)) continue;
+    if (w.rooms[room].length >= ROOM_ITEM_CAP) {
+      out.changes.push(`… ${room} is full (${ROOM_ITEM_CAP} things) — sell something there first`);
+      continue;
+    }
     const price = priceOf(id);
     if (w.bank < price) {
       out.changes.push(`… can't afford ${o.label} (${price}c)`);
