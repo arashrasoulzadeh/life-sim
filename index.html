@@ -134,6 +134,26 @@
       }
       #rooms.zoom .room-sign { font-size: 1.6cqmin; }
       #rooms .furn { position: absolute; border-radius: 2px; overflow: hidden; }
+      /* the window's weather overlay — shows through under the AI's chosen art */
+      #rooms .furn.win { position: absolute; }
+      #rooms .furn.win .wx { position: absolute; inset: 0; pointer-events: none; }
+      #rooms .furn.win .wx-rain {
+        opacity: 0.4;
+        background-image: repeating-linear-gradient(102deg,
+          rgba(210, 225, 255, 0.55) 0 1px, transparent 1px 13px);
+        animation: winrain 0.5s linear infinite;
+      }
+      @keyframes winrain { from { background-position: 0 0; } to { background-position: -13px 46px; } }
+      #rooms .furn.win .wx-flash {
+        background: #eef4ff; opacity: 0;
+        animation: winflash 6s ease-in-out infinite;
+      }
+      @keyframes winflash { 0%, 91%, 100% { opacity: 0; } 92%, 94% { opacity: 0.55; } 93% { opacity: 0.15; } }
+      #rooms .furn.win .wx-gold {
+        background: radial-gradient(60% 60% at 30% 25%, rgba(255, 214, 140, 0.35), transparent 70%);
+        mix-blend-mode: soft-light;
+      }
+      #rooms .furn.win .wx-night { background: #030612; opacity: 0.4; }
       #rooms .painting { border-radius: 1px; }
       #rooms .painting .obj-art { width: 100%; height: 100%; display: block; }
       #rooms .obj {

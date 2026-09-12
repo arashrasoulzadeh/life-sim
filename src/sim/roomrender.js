@@ -184,12 +184,21 @@ function hexA(c, a) {
   return `color-mix(in srgb, ${c} ${Math.round(a * 100)}%, transparent)`;
 }
 
-function winFurn(art) {
+// the window shows the AI's chosen generative art, but the weather itself
+// still shows through: rain/storm streak the glass, a storm flashes, and
+// night dims it — layered on top so it never fights the art underneath
+function winFurn(art, weather) {
   const bg = windowArtCss(art).replace(/"/g, "'");
-  return `<div class="furn win" style="left:28%;width:44%;top:14%;height:34%;background:${bg}"></div>`;
+  const sky = weather && weather.sky;
+  const layers = [];
+  if (sky === "rain" || sky === "storm") layers.push('<div class="wx wx-rain"></div>');
+  if (sky === "storm") layers.push('<div class="wx wx-flash"></div>');
+  if (sky === "gold") layers.push('<div class="wx wx-gold"></div>');
+  if (weather && weather.isNight) layers.push('<div class="wx wx-night"></div>');
+  return `<div class="furn win" style="left:28%;width:44%;top:14%;height:34%;background:${bg}">${layers.join("")}</div>`;
 }
 
-export function roomHtml(roomId, objects, style, plants, wear, windowArt, art, couchArt) {
+export function roomHtml(roomId, objects, style, plants, wear, windowArt, art, couchArt, weather) {
   const st = roomStyle(roomId, style);
   const p = st.palette;
   const points = assignSlots(roomId, objects);
@@ -197,7 +206,7 @@ export function roomHtml(roomId, objects, style, plants, wear, windowArt, art, c
     `<div class="room" data-room="${roomId}" style="--wall:${p.wall};--floor:${p.floor};--accent:${p.accent};--furn:${st.furn}">` +
     `<div class="wall" data-pattern="${st.pattern}"></div><div class="floor" data-pattern="${st.floor}"></div>` +
     lightLayer(st.light) +
-    (roomId === "window" ? winFurn(windowArt) : FURNITURE[roomId] || "") +
+    (roomId === "window" ? winFurn(windowArt, weather) : FURNITURE[roomId] || "") +
     (roomId === "couch" ? paintingsHtml(couchArt) : "") +
     objects.map((id, i) => objHtml(id, points[i], roomId, plants, wear, st.names, art)).join("") +
     (st.sign ? `<span class="room-sign">${esc(st.sign)}</span>` : "") +
@@ -232,7 +241,7 @@ export function objectsMeta(roomId, objects, objDay, plants, wear, names, keepsa
     .filter(Boolean);
 }
 
-export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, windowArt, keepsake, art, couchArt) {
+export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, windowArt, keepsake, art, couchArt, weather) {
   const st = roomStyle(roomId, style);
   return {
     room: roomId,
@@ -246,14 +255,15 @@ export function roomDoc(seed, roomId, objects, style, objDay, plants, wear, wind
     names: st.names,
     objects: [...objects],
     meta: objectsMeta(roomId, objects, objDay, plants, wear, st.names, keepsake, art),
-    html: roomHtml(roomId, objects, style, plants, wear, windowArt, art, couchArt),
+    html: roomHtml(roomId, objects, style, plants, wear, windowArt, art, couchArt, weather),
     updated: new Date().toISOString(),
   };
 }
 
 export function initDocs(world) {
   world.roomDocs = {};
+  const weather = { sky: world.weather?.sky, isNight: world.isNight };
   for (const rid of Object.keys(world.rooms)) {
-    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake, world.itemArt, world.couchArt);
+    world.roomDocs[rid] = roomDoc(world.seed, rid, world.rooms[rid], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake, world.itemArt, world.couchArt, weather);
   }
 }

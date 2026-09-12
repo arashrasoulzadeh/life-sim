@@ -627,16 +627,32 @@ function evolveGame() {
 }
 
 // ---------- rooms ----------
+function windowWeather() {
+  return { sky: world.weather.sky, isNight: world.isNight };
+}
 function regenRooms(force) {
   let bumped = !!force;
+  const weather = windowWeather();
   for (const rid of ROOM_IDS) {
     const cur = world.roomDocs[rid];
     if (force || !cur || (cur.objects || []).join(",") !== (world.rooms[rid] || []).join(",")) {
-      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake, world.itemArt, world.couchArt);
+      world.roomDocs[rid] = roomDoc(SEED, rid, world.rooms[rid] || [], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake, world.itemArt, world.couchArt, weather);
       bumped = true;
     }
   }
   if (bumped) world.roomsVersion++;
+}
+
+// the window's rain/night overlay tracks live weather + time of day, not just
+// object changes — cheap to check every tick, only rebuilds the one room doc
+let _lastWinWeather = "";
+function regenWindowIfWeatherChanged() {
+  const weather = windowWeather();
+  const key = `${weather.sky}:${weather.isNight}`;
+  if (key === _lastWinWeather) return;
+  _lastWinWeather = key;
+  world.roomDocs.window = roomDoc(SEED, "window", world.rooms.window || [], world.roomStyle, world.objDay, world.plants, world.wear, world.windowArt, world.keepsake, world.itemArt, world.couchArt, weather);
+  world.roomsVersion++;
 }
 
 // ---------- bank / ledger ----------
@@ -896,6 +912,7 @@ setInterval(() => {
   }
 
   postTick();
+  regenWindowIfWeatherChanged();
 
   if (world.dialogueRequest && !dialogueBusy) {
     const phase = world.dialogueRequest;

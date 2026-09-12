@@ -89,6 +89,32 @@ test("roomHtml includes the wall/floor pattern, the room tag, and every object",
   for (const id of ids) assert.ok(html.includes(`data-obj="${id}"`));
 });
 
+test("roomHtml layers a rain overlay in the window during rain/storm, a flash during storm, gold during a golden sky, and a night dim — but never for a plain room", () => {
+  const rain = roomHtml("window", [], {}, {}, {}, null, {}, [], { sky: "rain", isNight: false });
+  assert.ok(rain.includes("wx-rain"));
+  assert.ok(!rain.includes("wx-flash"));
+
+  const storm = roomHtml("window", [], {}, {}, {}, null, {}, [], { sky: "storm", isNight: false });
+  assert.ok(storm.includes("wx-rain"));
+  assert.ok(storm.includes("wx-flash"));
+
+  const gold = roomHtml("window", [], {}, {}, {}, null, {}, [], { sky: "gold", isNight: false });
+  assert.ok(gold.includes("wx-gold"));
+
+  const clearNight = roomHtml("window", [], {}, {}, {}, null, {}, [], { sky: "clear", isNight: true });
+  assert.ok(clearNight.includes("wx-night"));
+  assert.ok(!clearNight.includes("wx-rain"));
+
+  const clearDay = roomHtml("window", [], {}, {}, {}, null, {}, [], { sky: "clear", isNight: false });
+  assert.ok(!clearDay.includes('class="wx'));
+
+  const noWeather = roomHtml("window", [], {}, {}, {}, null, {}, []);
+  assert.ok(!noWeather.includes('class="wx'), "omitting weather entirely should render cleanly with no overlay");
+
+  const deskWithWeather = roomHtml("desk", [], {}, {}, {}, null, {}, [], { sky: "storm", isNight: true });
+  assert.ok(!deskWithWeather.includes("wx-"), "weather overlay only applies to the window room");
+});
+
 test("roomHtml renders the window's generative art background, and paintings only on the couch", () => {
   const winHtml = roomHtml("window", [], {}, {}, {}, { style: "bands", hue: 10, hue2: 90, density: 0.5 }, {}, []);
   assert.ok(winHtml.includes("furn win"));
